@@ -1,8 +1,10 @@
 import os
+from uuid import uuid4
 
 import httpx
 import streamlit as st
 
+from installation_display import location_columns
 from time_display import (
     create_hourly_chart,
     format_german_date,
@@ -10,9 +12,40 @@ from time_display import (
     summarize_daily_power,
 )
 
+st.set_page_config(page_title="PV Forecast", page_icon="☀️", layout="wide")
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 REQUEST_TIMEOUT = 5.0
+
+if "session_id" not in st.session_state:
+    st.session_state["session_id"] = str(uuid4())
+
+
+def api_headers() -> dict[str, str]:
+    return {"X-Session-ID": st.session_state["session_id"]}
+
+
+def api_get(path: str, *, timeout: float = REQUEST_TIMEOUT) -> httpx.Response:
+    return httpx.get(
+        f"{API_BASE_URL}{path}", headers=api_headers(), timeout=timeout
+    )
+
+
+def api_post(
+    path: str, *, json: dict | None = None, timeout: float = REQUEST_TIMEOUT
+) -> httpx.Response:
+    return httpx.post(
+        f"{API_BASE_URL}{path}",
+        json=json,
+        headers=api_headers(),
+        timeout=timeout,
+    )
+
+
+def api_delete(path: str, *, timeout: float = REQUEST_TIMEOUT) -> httpx.Response:
+    return httpx.delete(
+        f"{API_BASE_URL}{path}", headers=api_headers(), timeout=timeout
+    )
 
 ORIENTATIONS = {
     "Nord": 0.0,
@@ -60,12 +93,11 @@ def orientation_from_azimuth(azimuth: float) -> str:
     )
 
 
-st.set_page_config(page_title="PV Forecast", page_icon="☀️", layout="wide")
 st.title("☀️ PV Forecast")
 st.subheader("PV-Anlagen verwalten und Leistung prognostizieren")
 
 try:
-    health_response = httpx.get(f"{API_BASE_URL}/health", timeout=REQUEST_TIMEOUT)
+    health_response = api_get("/health")
     health_response.raise_for_status()
     backend_available = health_response.json().get("status") == "ok"
 except (httpx.HTTPError, ValueError):
@@ -84,20 +116,21 @@ expert_mode = st.toggle(
     help="Zeigt technische Eingaben, Wetterdetails und API-Rohdaten an.",
 )
 
-st.header("Neue Anlage anlegen")
-with st.container(border=True):
-    name = st.text_input("Name", placeholder="z. B. Hausdach Süd")
-    location = st.text_input(
-        "Standort",
-        placeholder="z. B. München oder Marienplatz 1, München",
-        help="Der Standort wird über OpenStreetMap automatisch in Koordinaten umgewandelt.",
-    )
-    st.caption(
-        "Geocoding: [© OpenStreetMap-Mitwirkende](https://www.openstreetmap.org/copyright)"
-    )
+management_left, management_right = st.columns(2, gap="large")
 
-    orientation_column, tilt_column, power_column = st.columns(3)
-    with orientation_column:
+with management_left:
+    st.header("Neue Anlage anlegen")
+    with st.container(border=True):
+        name = st.text_input("Name", placeholder="z. B. Hausdach Süd")
+        location = st.text_input(
+            "Standort",
+            placeholder="z. B. München oder Marienplatz 1, München",
+            help="Der Standort wird über OpenStreetMap automatisch in Koordinaten umgewandelt.",
+        )
+        st.caption(
+            "Geocoding: [© OpenStreetMap-Mitwirkende](https://www.openstreetmap.org/copyright)"
+        )
+
         orientation = st.selectbox(
             "Ausrichtung",
             options=list(ORIENTATIONS),
@@ -109,7 +142,7 @@ with st.container(border=True):
                 "⚠️ Diese Ausrichtung ist für PV meist ungünstig. "
                 "Die Prognose wird trotzdem berechnet."
             )
-    with tilt_column:
+
         tilt = st.slider(
             "Neigung (°)",
             min_value=0,
@@ -117,59 +150,55 @@ with st.container(border=True):
             value=30,
             help="0° = flach · 30–40° = typisches Schrägdach · 90° = senkrecht",
         )
-    with power_column:
         peak_power_kwp = st.number_input(
             "Spitzenleistung (kWp)", min_value=0.01, value=10.0, step=0.1
         )
 
-    mapped_azimuth = ORIENTATIONS[orientation]
-    azimuth = mapped_azimuth
-    if expert_mode:
-        st.markdown("**Technische Ausrichtung**")
-        override_azimuth = st.checkbox("Azimut in Grad überschreiben")
-        numeric_azimuth = st.number_input(
-            "Azimut in Grad",
-            min_value=0.0,
-            max_value=360.0,
-            value=float(mapped_azimuth),
-            step=0.5,
-            disabled=not override_azimuth,
-            help="Nord = 0°, Ost = 90°, Süd = 180°, West = 270°",
-        )
-        azimuth = numeric_azimuth if override_azimuth else mapped_azimuth
-        st.caption(f"Verwendete Neigung: {tilt}°")
+        mapped_azimuth = ORIENTATIONS[orientation]
+        azimuth = mapped_azimuth
+        if expert_mode:
+            st.markdown("**Technische Ausrichtung**")
+            override_azimuth = st.checkbox("Azimut in Grad überschreiben")
+            numeric_azimuth = st.number_input(
+                "Azimut in Grad",
+                min_value=0.0,
+                max_value=360.0,
+                value=float(mapped_azimuth),
+                step=0.5,
+                disabled=not override_azimuth,
+                help="Nord = 0°, Ost = 90°, Süd = 180°, West = 270°",
+            )
+            azimuth = numeric_azimuth if override_azimuth else mapped_azimuth
+            st.caption(f"Verwendete Neigung: {tilt}°")
 
-    if st.button("Anlage speichern", type="primary"):
-        if not name.strip() or not location.strip():
-            st.error("Bitte Name und Standort der Anlage eingeben.")
-        else:
-            try:
-                create_response = httpx.post(
-                    f"{API_BASE_URL}/installations",
-                    json={
-                        "name": name.strip(),
-                        "location": location.strip(),
-                        "peak_power_kwp": peak_power_kwp,
-                        "azimuth": azimuth,
-                        "tilt": float(tilt),
-                    },
-                    timeout=REQUEST_TIMEOUT,
-                )
-                create_response.raise_for_status()
-                st.success(f"Anlage „{name.strip()}“ wurde angelegt.")
-            except httpx.HTTPStatusError as exc:
-                st.error(
-                    response_error_message(
-                        exc.response, "Die Anlage konnte nicht gespeichert werden."
+        if st.button("Anlage speichern", type="primary"):
+            if not name.strip() or not location.strip():
+                st.error("Bitte Name und Standort der Anlage eingeben.")
+            else:
+                try:
+                    create_response = api_post(
+                        "/installations",
+                        json={
+                            "name": name.strip(),
+                            "location": location.strip(),
+                            "peak_power_kwp": peak_power_kwp,
+                            "azimuth": azimuth,
+                            "tilt": float(tilt),
+                        },
                     )
-                )
-            except httpx.RequestError:
-                st.error("Das Backend ist beim Speichern nicht erreichbar.")
+                    create_response.raise_for_status()
+                    st.success(f"Anlage „{name.strip()}“ wurde angelegt.")
+                except httpx.HTTPStatusError as exc:
+                    st.error(
+                        response_error_message(
+                            exc.response, "Die Anlage konnte nicht gespeichert werden."
+                        )
+                    )
+                except httpx.RequestError:
+                    st.error("Das Backend ist beim Speichern nicht erreichbar.")
 
 try:
-    installations_response = httpx.get(
-        f"{API_BASE_URL}/installations", timeout=REQUEST_TIMEOUT
-    )
+    installations_response = api_get("/installations")
     installations_response.raise_for_status()
     installations = installations_response.json()
 except (httpx.HTTPError, ValueError) as exc:
@@ -187,9 +216,8 @@ def confirm_installation_delete(installation: dict) -> None:
     with delete_column:
         if st.button("Endgültig löschen", type="primary", use_container_width=True):
             try:
-                response = httpx.delete(
-                    f"{API_BASE_URL}/installations/{installation['id']}",
-                    timeout=REQUEST_TIMEOUT,
+                response = api_delete(
+                    f"/installations/{installation['id']}"
                 )
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
@@ -210,53 +238,205 @@ def confirm_installation_delete(installation: dict) -> None:
                 "pv_daily_energy",
                 "pv_forecast_metrics",
                 "pv_forecast_installation_id",
+                "pv_forecast_components",
+                "pv_forecast_target_key",
             ):
                 st.session_state.pop(key, None)
             st.session_state["deleted_installation_name"] = installation["name"]
             st.rerun()
 
 
-st.header("Vorhandene Anlagen")
-if installations:
-    column_widths = [1.6, 1, 1, 1, 0.8, 0.8, 1.5, 0.35]
-    headers = st.columns(column_widths)
-    for column, label in zip(
-        headers,
-        (
+with management_right:
+    st.header("Vorhandene Anlagen")
+    if installations:
+        standard_labels = [
             "Name",
-            "Breitengrad",
-            "Längengrad",
+            "Ort",
             "Leistung",
-            "Azimut" if expert_mode else "Ausrichtung",
+            "Ausrichtung",
             "Neigung",
             "Erstellt am",
             "",
-        ),
-        strict=True,
-    ):
-        column.markdown(f"**{label}**")
+        ]
+        standard_widths = [1.3, 1.3, 0.9, 1.1, 0.7, 1.4, 0.35]
+        if expert_mode:
+            labels = standard_labels[:-1] + [
+                "Breitengrad",
+                "Längengrad",
+                "Azimut",
+                "",
+            ]
+            widths = standard_widths[:-1] + [0.9, 0.9, 0.7, 0.35]
+        else:
+            labels = standard_labels
+            widths = standard_widths
 
+        headers = st.columns(widths)
+        for column, label in zip(headers, labels, strict=True):
+            column.markdown(f"**{label}**")
+
+        for installation in installations:
+            row = st.columns(widths)
+            displayed_location = location_columns(
+                installation, expert_mode=expert_mode
+            )
+            values = [
+                installation["name"],
+                displayed_location["Ort"],
+                f"{installation['peak_power_kwp']:.2f} kWp",
+                orientation_from_azimuth(installation["azimuth"]),
+                f"{installation['tilt']:.1f}°",
+                format_german_datetime(installation["created_at"]),
+            ]
+            if expert_mode:
+                values.extend(
+                    [
+                        displayed_location["Breitengrad"],
+                        displayed_location["Längengrad"],
+                        f"{installation['azimuth']:.1f}°",
+                    ]
+                )
+            for column, value in zip(row, values, strict=False):
+                column.write(value)
+            if row[-1].button(
+                "🗑️",
+                key=f"delete-{installation['id']}",
+                help=f"Anlage {installation['name']} löschen",
+            ):
+                confirm_installation_delete(installation)
+    else:
+        st.info("Noch keine PV-Anlagen vorhanden.")
+
+st.divider()
+st.header("Kraftwerke")
+plant_left, plant_right = st.columns(2, gap="large")
+
+with plant_left:
+    st.subheader("Kraftwerk anlegen")
+    plant_name = st.text_input(
+        "Name des Kraftwerks", placeholder="z. B. Wohnhaus Gesamt"
+    )
+    plant_location = st.text_input(
+        "Ort des Kraftwerks (optional)", placeholder="z. B. Stockholm"
+    )
+    if st.button("Kraftwerk speichern"):
+        if not plant_name.strip():
+            st.error("Bitte einen Namen für das Kraftwerk eingeben.")
+        else:
+            try:
+                response = api_post(
+                    "/plants",
+                    json={
+                        "name": plant_name.strip(),
+                        "location_label": plant_location.strip() or None,
+                    },
+                )
+                response.raise_for_status()
+                st.success(f"Kraftwerk „{plant_name.strip()}“ wurde angelegt.")
+            except httpx.HTTPStatusError as exc:
+                st.error(
+                    response_error_message(
+                        exc.response, "Das Kraftwerk konnte nicht angelegt werden."
+                    )
+                )
+            except httpx.RequestError:
+                st.error("Das Backend ist beim Anlegen des Kraftwerks nicht erreichbar.")
+
+try:
+    plants_response = api_get("/plants")
+    plants_response.raise_for_status()
+    plants = plants_response.json()
+except (httpx.HTTPError, ValueError) as exc:
+    st.error(f"Die Kraftwerke konnten nicht geladen werden: {exc}")
+    plants = []
+
+with plant_right:
+    st.subheader("Vorhandene Kraftwerke")
+    if plants:
+        for plant in plants:
+            name_column, location_column, action_column = st.columns([1.5, 1.2, 0.35])
+            name_column.write(plant["name"])
+            location_column.write(plant.get("location_label") or "Ort nicht angegeben")
+            if action_column.button(
+                "🗑️",
+                key=f"delete-plant-{plant['id']}",
+                help=f"Kraftwerk {plant['name']} löschen",
+            ):
+                try:
+                    response = api_delete(f"/plants/{plant['id']}")
+                    response.raise_for_status()
+                    if st.session_state.get("pv_forecast_target_key") == f"plant:{plant['id']}":
+                        for key in (
+                            "pv_forecast",
+                            "pv_daily_energy",
+                            "pv_forecast_metrics",
+                            "pv_forecast_components",
+                            "pv_forecast_target_key",
+                        ):
+                            st.session_state.pop(key, None)
+                    st.rerun()
+                except httpx.HTTPStatusError as exc:
+                    st.error(
+                        response_error_message(
+                            exc.response, "Das Kraftwerk konnte nicht gelöscht werden."
+                        )
+                    )
+                except httpx.RequestError:
+                    st.error("Das Backend ist beim Löschen nicht erreichbar.")
+    else:
+        st.info("Noch keine Kraftwerke vorhanden.")
+
+if plants and installations:
+    st.subheader("Anlagen zuordnen")
+    plants_by_id = {plant["id"]: plant for plant in plants}
+    assignment_plant_id = st.selectbox(
+        "Kraftwerk auswählen",
+        options=list(plants_by_id),
+        format_func=lambda plant_id: plants_by_id[plant_id]["name"],
+        key="assignment_plant_id",
+    )
+    assignment_values: dict[str, bool] = {}
     for installation in installations:
-        row = st.columns(column_widths)
-        row[0].write(installation["name"])
-        row[1].write(f"{installation['latitude']:.5f}")
-        row[2].write(f"{installation['longitude']:.5f}")
-        row[3].write(f"{installation['peak_power_kwp']:.2f} kWp")
-        row[4].write(
-            f"{installation['azimuth']:.1f}°"
-            if expert_mode
-            else orientation_from_azimuth(installation["azimuth"])
+        assigned_plant_id = installation.get("plant_id")
+        label = installation["name"]
+        if assigned_plant_id and assigned_plant_id != assignment_plant_id:
+            other_plant = plants_by_id.get(assigned_plant_id)
+            if other_plant:
+                label += f" (aktuell: {other_plant['name']})"
+        assignment_values[installation["id"]] = st.checkbox(
+            label,
+            value=assigned_plant_id == assignment_plant_id,
+            key=f"assign-{assignment_plant_id}-{installation['id']}",
         )
-        row[5].write(f"{installation['tilt']:.1f}°")
-        row[6].write(format_german_datetime(installation["created_at"]))
-        if row[7].button(
-            "🗑️",
-            key=f"delete-{installation['id']}",
-            help=f"Anlage {installation['name']} löschen",
-        ):
-            confirm_installation_delete(installation)
-else:
-    st.info("Noch keine PV-Anlagen vorhanden.")
+
+    if st.button("Zuordnung speichern", type="primary"):
+        try:
+            for installation in installations:
+                installation_id = installation["id"]
+                assigned_plant_id = installation.get("plant_id")
+                should_be_assigned = assignment_values[installation_id]
+                if should_be_assigned and assigned_plant_id != assignment_plant_id:
+                    response = api_post(
+                        f"/plants/{assignment_plant_id}/installations/"
+                        f"{installation_id}"
+                    )
+                    response.raise_for_status()
+                elif not should_be_assigned and assigned_plant_id == assignment_plant_id:
+                    response = api_delete(
+                        f"/plants/{assignment_plant_id}/installations/"
+                        f"{installation_id}"
+                    )
+                    response.raise_for_status()
+            st.success("Die Anlagenzuordnung wurde gespeichert.")
+            st.rerun()
+        except httpx.HTTPStatusError as exc:
+            st.error(
+                response_error_message(
+                    exc.response, "Die Zuordnung konnte nicht gespeichert werden."
+                )
+            )
+        except httpx.RequestError:
+            st.error("Das Backend ist beim Speichern der Zuordnung nicht erreichbar.")
 
 st.divider()
 st.header("PV-Prognose")
@@ -266,18 +446,43 @@ if not installations:
     st.stop()
 
 installations_by_id = {item["id"]: item for item in installations}
-selected_installation_id = st.selectbox(
-    "Anlage auswählen",
-    options=list(installations_by_id),
-    format_func=lambda item_id: installations_by_id[item_id]["name"],
+forecast_target_type = (
+    st.radio(
+        "Prognose für",
+        options=("Einzelanlage", "Kraftwerk"),
+        horizontal=True,
+    )
+    if plants
+    else "Einzelanlage"
 )
 
-if st.button("Prognose berechnen", type="primary"):
+selected_installation_id = None
+selected_plant_id = None
+if forecast_target_type == "Einzelanlage":
+    selected_installation_id = st.selectbox(
+        "Anlage auswählen",
+        options=list(installations_by_id),
+        format_func=lambda item_id: installations_by_id[item_id]["name"],
+    )
+    forecast_path = f"/installations/{selected_installation_id}/pv-forecast"
+    forecast_target_key = f"installation:{selected_installation_id}"
+    forecast_button_label = "Prognose berechnen"
+else:
+    plants_by_id = {plant["id"]: plant for plant in plants}
+    selected_plant_id = st.selectbox(
+        "Kraftwerk auswählen",
+        options=list(plants_by_id),
+        format_func=lambda plant_id: plants_by_id[plant_id]["name"],
+    )
+    forecast_path = f"/plants/{selected_plant_id}/pv-forecast"
+    forecast_target_key = f"plant:{selected_plant_id}"
+    forecast_button_label = "Gesamtprognose berechnen"
+
+if st.button(forecast_button_label, type="primary"):
     try:
         with st.spinner("Prognose wird berechnet …"):
-            forecast_response = httpx.get(
-                f"{API_BASE_URL}/installations/"
-                f"{selected_installation_id}/pv-forecast",
+            forecast_response = api_get(
+                forecast_path,
                 timeout=30.0,
             )
             forecast_response.raise_for_status()
@@ -289,9 +494,10 @@ if st.button("Prognose berechnen", type="primary"):
             st.session_state["pv_forecast_metrics"] = forecast_payload.get(
                 "metrics", {}
             )
-            st.session_state["pv_forecast_installation_id"] = (
-                selected_installation_id
+            st.session_state["pv_forecast_components"] = forecast_payload.get(
+                "components", []
             )
+            st.session_state["pv_forecast_target_key"] = forecast_target_key
     except httpx.HTTPStatusError as exc:
         st.error(
             response_error_message(
@@ -303,25 +509,29 @@ if st.button("Prognose berechnen", type="primary"):
     except httpx.RequestError:
         st.error("Das Backend ist beim Berechnen der Prognose nicht erreichbar.")
     else:
-        try:
-            weather_response = httpx.get(
-                f"{API_BASE_URL}/installations/"
-                f"{selected_installation_id}/weather-forecast",
-                timeout=20.0,
-            )
-            weather_response.raise_for_status()
-            st.session_state["weather_forecast"] = weather_response.json()
-            st.session_state["weather_installation_id"] = selected_installation_id
+        if forecast_target_type != "Einzelanlage":
+            st.session_state.pop("weather_forecast", None)
+            st.session_state.pop("weather_installation_id", None)
             st.session_state.pop("weather_details_error", None)
-        except (httpx.HTTPError, ValueError):
-            st.session_state["weather_details_error"] = (
-                "Technische Wetterdetails konnten nicht zusätzlich geladen werden."
-            )
+        else:
+            try:
+                weather_response = api_get(
+                    f"/installations/{selected_installation_id}/weather-forecast",
+                    timeout=20.0,
+                )
+                weather_response.raise_for_status()
+                st.session_state["weather_forecast"] = weather_response.json()
+                st.session_state["weather_installation_id"] = selected_installation_id
+                st.session_state.pop("weather_details_error", None)
+            except (httpx.HTTPError, ValueError):
+                st.session_state["weather_details_error"] = (
+                    "Technische Wetterdetails konnten nicht zusätzlich geladen werden."
+                )
 
 pv_forecast = st.session_state.get("pv_forecast", [])
-forecast_installation_id = st.session_state.get("pv_forecast_installation_id")
+stored_forecast_target_key = st.session_state.get("pv_forecast_target_key")
 forecast_is_selected = (
-    pv_forecast and forecast_installation_id == selected_installation_id
+    bool(pv_forecast) and stored_forecast_target_key == forecast_target_key
 )
 
 if forecast_is_selected:
@@ -343,30 +553,55 @@ if forecast_is_selected:
                     peak_time.strftime("%H:%M") if peak_time is not None else "—",
                 )
 
-    st.subheader("Prognostizierte PV-Leistung")
+    st.subheader(
+        "Summierte PV-Leistung"
+        if forecast_target_type == "Kraftwerk"
+        else "Prognostizierte PV-Leistung"
+    )
+    component_series = (
+        st.session_state.get("pv_forecast_components", [])
+        if expert_mode and forecast_target_type == "Kraftwerk"
+        else []
+    )
     st.plotly_chart(
         create_hourly_chart(
             pv_forecast,
             value_key="predicted_power_kw",
-            trace_name="PV-Leistung",
+            trace_name="Gesamtleistung" if forecast_target_type == "Kraftwerk" else "PV-Leistung",
             y_axis_title="Leistung (kW)",
+            additional_series=component_series,
         ),
         use_container_width=True,
         config={"displayModeBar": False},
     )
 else:
-    st.info("Wähle eine Anlage aus und berechne ihre Prognose.")
+    st.info("Wähle ein Prognoseziel aus und berechne seine Prognose.")
 
 if expert_mode:
     with st.expander("Technische Details anzeigen", expanded=False):
-        selected_installation = installations_by_id[selected_installation_id]
-        st.write(
-            f"Azimut: {selected_installation['azimuth']:.1f}° · "
-            f"Neigung: {selected_installation['tilt']:.1f}°"
-        )
+        if forecast_target_type == "Einzelanlage":
+            selected_installation = installations_by_id[selected_installation_id]
+            st.write(
+                f"Azimut: {selected_installation['azimuth']:.1f}° · "
+                f"Neigung: {selected_installation['tilt']:.1f}°"
+            )
+        else:
+            component_names = [
+                component["name"]
+                for component in st.session_state.get("pv_forecast_components", [])
+            ]
+            st.write(
+                "Enthaltene Anlagen: "
+                + (", ".join(component_names) if component_names else "noch nicht geladen")
+            )
+
         weather_forecast = st.session_state.get("weather_forecast", [])
         weather_installation_id = st.session_state.get("weather_installation_id")
-        if weather_forecast and weather_installation_id == selected_installation_id:
+        if (
+            forecast_target_type == "Einzelanlage"
+            and weather_forecast
+            and weather_installation_id == selected_installation_id
+        ):
             weather_table = [
                 {
                     "Zeitpunkt": format_german_datetime(row["timestamp"]),
@@ -391,10 +626,8 @@ if expert_mode:
                 use_container_width=True,
                 config={"displayModeBar": False},
             )
-        elif st.session_state.get("weather_details_error"):
+        elif forecast_target_type == "Einzelanlage" and st.session_state.get("weather_details_error"):
             st.warning(st.session_state["weather_details_error"])
-        else:
-            st.info("Technische Wetterdetails erscheinen nach der Prognoseberechnung.")
 
         if forecast_is_selected:
             st.markdown("#### Rohdaten")
@@ -404,51 +637,54 @@ if expert_mode:
                         "hourly": pv_forecast,
                         "daily": st.session_state.get("pv_daily_energy", []),
                         "metrics": st.session_state.get("pv_forecast_metrics", {}),
+                        "components": st.session_state.get("pv_forecast_components", []),
                     },
                     "weather": weather_forecast,
                 },
                 expanded=False,
             )
 
-st.divider()
-st.subheader("Forecast-Historie")
-try:
-    history_response = httpx.get(
-        f"{API_BASE_URL}/installations/"
-        f"{selected_installation_id}/forecast-history",
-        timeout=REQUEST_TIMEOUT,
-    )
-    history_response.raise_for_status()
-    forecast_history = history_response.json()
-except httpx.HTTPStatusError as exc:
-    st.error(
-        response_error_message(
-            exc.response, "Die Forecast-Historie konnte nicht geladen werden."
-        )
-    )
-    forecast_history = []
-except (httpx.RequestError, ValueError):
-    st.error("Das Backend ist beim Laden der Forecast-Historie nicht erreichbar.")
-    forecast_history = []
+if expert_mode and forecast_target_type == "Einzelanlage":
+    st.divider()
+    with st.expander("Forecast-Historie", expanded=False):
+        try:
+            history_response = api_get(
+                f"/installations/{selected_installation_id}/forecast-history",
+            )
+            history_response.raise_for_status()
+            forecast_history = history_response.json()
+        except httpx.HTTPStatusError as exc:
+            st.error(
+                response_error_message(
+                    exc.response, "Die Forecast-Historie konnte nicht geladen werden."
+                )
+            )
+            forecast_history = []
+        except (httpx.RequestError, ValueError):
+            st.error("Das Backend ist beim Laden der Forecast-Historie nicht erreichbar.")
+            forecast_history = []
 
-if forecast_history:
-    history_table = []
-    for run in forecast_history:
-        daily_yields = " · ".join(
-            f"{format_german_date(day['date'])}: {day['daily_energy_kwh']:.2f} kWh"
-            for day in run["daily"]
-        )
-        history_table.append(
-            {
-                "Erstellungszeitpunkt": format_german_datetime(run["created_at"]),
-                "Prognosezeitraum": (
-                    f"{format_german_datetime(run['forecast_start'])} – "
-                    f"{format_german_datetime(run['forecast_end'])}"
-                ),
-                "Tagesertrag": daily_yields,
-                "Peak-Leistung (kW)": run["peak_power_kw"],
-            }
-        )
-    st.dataframe(history_table, use_container_width=True, hide_index=True)
-else:
-    st.info("Für diese Anlage sind noch keine Forecasts gespeichert.")
+        if forecast_history:
+            history_table = []
+            for run in forecast_history:
+                daily_yields = " · ".join(
+                    f"{format_german_date(day['date'])}: "
+                    f"{day['daily_energy_kwh']:.2f} kWh"
+                    for day in run["daily"]
+                )
+                history_table.append(
+                    {
+                        "Erstellungszeitpunkt": format_german_datetime(
+                            run["created_at"]
+                        ),
+                        "Prognosezeitraum": (
+                            f"{format_german_datetime(run['forecast_start'])} – "
+                            f"{format_german_datetime(run['forecast_end'])}"
+                        ),
+                        "Tagesertrag": daily_yields,
+                        "Peak-Leistung (kW)": run["peak_power_kw"],
+                    }
+                )
+            st.dataframe(history_table, use_container_width=True, hide_index=True)
+        else:
+            st.info("Für diese Anlage sind noch keine Forecasts gespeichert.")

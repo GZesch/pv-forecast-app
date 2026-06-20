@@ -98,6 +98,7 @@ def create_hourly_chart(
     value_key: str,
     trace_name: str,
     y_axis_title: str,
+    additional_series: list[dict[str, Any]] | None = None,
 ) -> go.Figure:
     """Create an hourly chart with 3-hour ticks and centered day labels."""
     local_times = [parse_timestamp(row["timestamp"]) for row in rows]
@@ -120,6 +121,32 @@ def create_hourly_chart(
             ),
         )
     )
+
+    for series in additional_series or []:
+        series_rows = series.get("hourly", [])
+        series_times = [
+            parse_timestamp(row["timestamp"]).replace(tzinfo=None)
+            for row in series_rows
+        ]
+        series_hover = [
+            format_german_datetime(row["timestamp"]) for row in series_rows
+        ]
+        series_name = str(series.get("name", "Einzelanlage"))
+        figure.add_trace(
+            go.Scatter(
+                x=series_times,
+                y=[row[value_key] for row in series_rows],
+                mode="lines",
+                name=series_name,
+                line={"dash": "dot"},
+                customdata=series_hover,
+                hovertemplate=(
+                    "%{customdata}<br>"
+                    + series_name
+                    + ": %{y:.2f}<extra></extra>"
+                ),
+            )
+        )
 
     tick_values = [
         chart_time
@@ -158,7 +185,7 @@ def create_hourly_chart(
         height=430,
         margin={"l": 20, "r": 20, "t": 20, "b": 105},
         hovermode="x unified",
-        showlegend=False,
+        showlegend=bool(additional_series),
         yaxis_title=y_axis_title,
     )
     return figure

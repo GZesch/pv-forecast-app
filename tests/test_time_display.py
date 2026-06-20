@@ -64,3 +64,44 @@ def test_daily_summary_calculates_energy_and_peak_per_local_day() -> None:
     assert summaries[0]["peak_timestamp"].strftime("%H:%M") == "11:00"
     assert summaries[1]["energy_kwh"] == 3.0
     assert summaries[2]["energy_kwh"] is None
+
+
+def test_hourly_chart_can_add_component_curves() -> None:
+    total = [
+        {"timestamp": "2026-06-20T10:00:00Z", "predicted_power_kw": 5.0}
+    ]
+    components = [
+        {
+            "name": "Ost",
+            "hourly": [
+                {
+                    "timestamp": "2026-06-20T10:00:00Z",
+                    "predicted_power_kw": 2.0,
+                }
+            ],
+        },
+        {
+            "name": "West",
+            "hourly": [
+                {
+                    "timestamp": "2026-06-20T10:00:00Z",
+                    "predicted_power_kw": 3.0,
+                }
+            ],
+        },
+    ]
+
+    figure = create_hourly_chart(
+        total,
+        value_key="predicted_power_kw",
+        trace_name="Gesamtleistung",
+        y_axis_title="Leistung (kW)",
+        additional_series=components,
+    )
+
+    assert [trace.name for trace in figure.data] == [
+        "Gesamtleistung",
+        "Ost",
+        "West",
+    ]
+    assert figure.layout.showlegend is True

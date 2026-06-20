@@ -18,6 +18,7 @@ class GeocodingServiceError(Exception):
 class Coordinates:
     latitude: float
     longitude: float
+    location_label: str | None = None
 
 
 NOMINATIM_URL = os.getenv(
@@ -54,6 +55,7 @@ async def geocode_location(location: str) -> Coordinates:
                         "q": query,
                         "format": "jsonv2",
                         "limit": 1,
+                        "addressdetails": 1,
                     },
                 )
                 response.raise_for_status()
@@ -71,12 +73,30 @@ async def geocode_location(location: str) -> Coordinates:
         )
 
     try:
+        address = results[0].get("address") or {}
+        if not isinstance(address, dict):
+            address = {}
+        locality = next(
+            (
+                address.get(key)
+                for key in ("city", "town", "village", "municipality", "hamlet")
+                if address.get(key)
+            ),
+            None,
+        )
+        country = address.get("country")
+        location_parts = [part for part in (locality, country) if part]
+        location_label = (
+            ", ".join(dict.fromkeys(location_parts))
+            if location_parts
+            else results[0].get("display_name")
+        )
         return Coordinates(
             latitude=float(results[0]["lat"]),
             longitude=float(results[0]["lon"]),
+            location_label=location_label,
         )
-    except (KeyError, TypeError, ValueError) as exc:
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
         raise GeocodingServiceError(
             "Der Geocoding-Dienst hat ungültige Koordinaten geliefert."
         ) from exc
-

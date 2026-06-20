@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
@@ -148,6 +148,31 @@ class PVForecastService:
             peak_power_kw=peak_row.predicted_power_kw,
             peak_timestamp=peak_row.timestamp,
         )
+
+    @staticmethod
+    def aggregate_hourly_forecasts(
+        forecasts: Sequence[Sequence[PVForecastRow]],
+    ) -> list[PVForecastRow]:
+        """Sum component forecasts by timestamp."""
+        totals: dict[datetime, float] = {}
+        for forecast in forecasts:
+            for point in forecast:
+                totals[point.timestamp] = (
+                    totals.get(point.timestamp, 0.0) + point.predicted_power_kw
+                )
+
+        if not totals:
+            raise PVForecastError(
+                "Für das Kraftwerk sind keine Prognosewerte vorhanden."
+            )
+
+        return [
+            PVForecastRow(
+                timestamp=timestamp,
+                predicted_power_kw=round(max(power, 0.0), 3),
+            )
+            for timestamp, power in sorted(totals.items())
+        ]
 
     @staticmethod
     def _validate_weather(weather: Sequence[WeatherForecastRow]) -> None:

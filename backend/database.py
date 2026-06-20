@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 import duckdb
 
-from backend.models import InstallationCreate, PVForecastResponse
+from backend.models import InstallationCreate, PlantCreate, PVForecastResponse
 
 
 class ForecastPersistenceError(RuntimeError):
@@ -66,9 +66,29 @@ def initialize_database() -> None:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS plants (
+                id UUID PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                location_label TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS plants_session_idx
+            ON plants (session_id, created_at)
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS installations (
                 id UUID PRIMARY KEY,
+                session_id UUID NOT NULL,
+                plant_id UUID,
                 name TEXT NOT NULL,
+                location_label TEXT,
                 latitude DOUBLE NOT NULL,
                 longitude DOUBLE NOT NULL,
                 peak_power_kwp DOUBLE NOT NULL,
@@ -78,10 +98,48 @@ def initialize_database() -> None:
             )
             """
         )
+        installation_columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info('installations')"
+            ).fetchall()
+        }
+        if "session_id" not in installation_columns:
+            connection.execute(
+                "ALTER TABLE installations ADD COLUMN session_id UUID"
+            )
+        if "location_label" not in installation_columns:
+            connection.execute(
+                "ALTER TABLE installations ADD COLUMN location_label TEXT"
+            )
+        if "plant_id" not in installation_columns:
+            connection.execute(
+                "ALTER TABLE installations ADD COLUMN plant_id UUID"
+            )
+        connection.execute(
+            """
+            UPDATE installations
+            SET location_label = printf('%.2f, %.2f', latitude, longitude)
+            WHERE location_label IS NULL OR trim(location_label) = ''
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS installations_plant_idx
+            ON installations (plant_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS installations_session_idx
+            ON installations (session_id)
+            """
+        )
 
 
 INSTALLATION_COLUMNS = """
-    id, name, latitude, longitude, peak_power_kwp, azimuth, tilt, created_at
+    id, name, location_label, latitude, longitude,
+    peak_power_kwp, azimuth, tilt, created_at, plant_id
 """
 
 
@@ -89,32 +147,41 @@ def _installation_from_row(row: tuple[Any, ...]) -> dict[str, Any]:
     return {
         "id": row[0],
         "name": row[1],
-        "latitude": row[2],
-        "longitude": row[3],
-        "peak_power_kwp": row[4],
-        "azimuth": row[5],
-        "tilt": row[6],
-        "created_at": row[7],
+        "location_label": row[2],
+        "latitude": row[3],
+        "longitude": row[4],
+        "peak_power_kwp": row[5],
+        "azimuth": row[6],
+        "tilt": row[7],
+        "created_at": row[8],
+        "plant_id": row[9],
     }
 
 
 def create_installation(
-    data: InstallationCreate, latitude: float, longitude: float
+    data: InstallationCreate,
+    latitude: float,
+    longitude: float,
+    session_id: UUID,
 ) -> dict[str, Any]:
     installation_id = uuid4()
     created_at = datetime.now()
+    # The user's original query is the reliable, human-readable default.
+    normalized_location_label = data.location.strip()
 
     with duckdb.connect(str(get_database_path())) as connection:
         connection.execute(
             """
             INSERT INTO installations (
-                id, name, latitude, longitude, peak_power_kwp,
-                azimuth, tilt, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                id, session_id, name, location_label, latitude, longitude,
+                peak_power_kwp, azimuth, tilt, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 installation_id,
+                session_id,
                 data.name,
+                normalized_location_label,
                 latitude,
                 longitude,
                 data.peak_power_kwp,
@@ -127,6 +194,7 @@ def create_installation(
     return {
         "id": installation_id,
         "name": data.name,
+        "location_label": normalized_location_label,
         "latitude": latitude,
         "longitude": longitude,
         "peak_power_kwp": data.peak_power_kwp,
@@ -136,30 +204,53 @@ def create_installation(
     }
 
 
-def list_installations() -> list[dict[str, Any]]:
+def list_installations(session_id: UUID) -> list[dict[str, Any]]:
     with duckdb.connect(str(get_database_path())) as connection:
         rows = connection.execute(
-            f"SELECT {INSTALLATION_COLUMNS} FROM installations ORDER BY created_at DESC"
+            f"""
+            SELECT {INSTALLATION_COLUMNS}
+            FROM installations
+            WHERE session_id = ?
+            ORDER BY created_at DESC
+            """,
+            [session_id],
         ).fetchall()
 
     return [_installation_from_row(row) for row in rows]
 
 
-def get_installation(installation_id: UUID) -> dict[str, Any] | None:
+def get_installation(
+    installation_id: UUID, session_id: UUID
+) -> dict[str, Any] | None:
     with duckdb.connect(str(get_database_path())) as connection:
         row = connection.execute(
-            f"SELECT {INSTALLATION_COLUMNS} FROM installations WHERE id = ?",
-            [installation_id],
+            f"""
+            SELECT {INSTALLATION_COLUMNS}
+            FROM installations
+            WHERE id = ? AND session_id = ?
+            """,
+            [installation_id, session_id],
         ).fetchone()
 
     return _installation_from_row(row) if row else None
 
 
-def delete_installation(installation_id: UUID) -> bool:
+def delete_installation(installation_id: UUID, session_id: UUID) -> bool:
     """Delete an installation and report whether it existed."""
     with duckdb.connect(str(get_database_path())) as connection:
         connection.execute("BEGIN TRANSACTION")
         try:
+            owned_installation = connection.execute(
+                """
+                SELECT id FROM installations
+                WHERE id = ? AND session_id = ?
+                """,
+                [installation_id, session_id],
+            ).fetchone()
+            if owned_installation is None:
+                connection.execute("COMMIT")
+                return False
+
             connection.execute(
                 """
                 DELETE FROM forecast_points
@@ -174,8 +265,12 @@ def delete_installation(installation_id: UUID) -> bool:
                 [installation_id],
             )
             deleted = connection.execute(
-                "DELETE FROM installations WHERE id = ? RETURNING id",
-                [installation_id],
+                """
+                DELETE FROM installations
+                WHERE id = ? AND session_id = ?
+                RETURNING id
+                """,
+                [installation_id, session_id],
             ).fetchone()
             connection.execute("COMMIT")
         except duckdb.Error:
@@ -284,3 +379,143 @@ def list_forecast_runs(
         }
         for row in rows
     ]
+
+
+PLANT_COLUMNS = "id, name, location_label, created_at"
+
+
+def _plant_from_row(row: tuple[Any, ...]) -> dict[str, Any]:
+    return {
+        "id": row[0],
+        "name": row[1],
+        "location_label": row[2],
+        "created_at": row[3],
+    }
+
+
+def create_plant(data: PlantCreate, session_id: UUID) -> dict[str, Any]:
+    plant_id = uuid4()
+    created_at = datetime.now()
+    location_label = (
+        data.location_label.strip() if data.location_label else None
+    ) or None
+
+    with duckdb.connect(str(get_database_path())) as connection:
+        connection.execute(
+            """
+            INSERT INTO plants (
+                id, session_id, name, location_label, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            [plant_id, str(session_id), data.name.strip(), location_label, created_at],
+        )
+
+    return {
+        "id": plant_id,
+        "name": data.name.strip(),
+        "location_label": location_label,
+        "created_at": created_at,
+    }
+
+
+def list_plants(session_id: UUID) -> list[dict[str, Any]]:
+    with duckdb.connect(str(get_database_path())) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT {PLANT_COLUMNS}
+            FROM plants
+            WHERE session_id = ?
+            ORDER BY created_at DESC
+            """,
+            [str(session_id)],
+        ).fetchall()
+    return [_plant_from_row(row) for row in rows]
+
+
+def get_plant(plant_id: UUID, session_id: UUID) -> dict[str, Any] | None:
+    with duckdb.connect(str(get_database_path())) as connection:
+        row = connection.execute(
+            f"""
+            SELECT {PLANT_COLUMNS}
+            FROM plants
+            WHERE id = ? AND session_id = ?
+            """,
+            [plant_id, str(session_id)],
+        ).fetchone()
+    return _plant_from_row(row) if row else None
+
+
+def delete_plant(plant_id: UUID, session_id: UUID) -> bool:
+    with duckdb.connect(str(get_database_path())) as connection:
+        connection.execute("BEGIN TRANSACTION")
+        try:
+            owned_plant = connection.execute(
+                "SELECT id FROM plants WHERE id = ? AND session_id = ?",
+                [plant_id, str(session_id)],
+            ).fetchone()
+            if owned_plant is None:
+                connection.execute("COMMIT")
+                return False
+            connection.execute(
+                "UPDATE installations SET plant_id = NULL WHERE plant_id = ?",
+                [plant_id],
+            )
+            connection.execute("DELETE FROM plants WHERE id = ?", [plant_id])
+            connection.execute("COMMIT")
+        except duckdb.Error:
+            connection.execute("ROLLBACK")
+            raise
+    return True
+
+
+def assign_installation_to_plant(
+    plant_id: UUID, installation_id: UUID, session_id: UUID
+) -> bool:
+    with duckdb.connect(str(get_database_path())) as connection:
+        plant_exists = connection.execute(
+            "SELECT 1 FROM plants WHERE id = ? AND session_id = ?",
+            [plant_id, str(session_id)],
+        ).fetchone()
+        installation_exists = connection.execute(
+            "SELECT 1 FROM installations WHERE id = ? AND session_id = ?",
+            [installation_id, session_id],
+        ).fetchone()
+        if plant_exists is None or installation_exists is None:
+            return False
+        connection.execute(
+            "UPDATE installations SET plant_id = ? WHERE id = ?",
+            [plant_id, installation_id],
+        )
+    return True
+
+
+def remove_installation_from_plant(
+    plant_id: UUID, installation_id: UUID, session_id: UUID
+) -> bool:
+    with duckdb.connect(str(get_database_path())) as connection:
+        removed = connection.execute(
+            """
+            UPDATE installations
+            SET plant_id = NULL
+            WHERE id = ? AND plant_id = ? AND session_id = ?
+            RETURNING id
+            """,
+            [installation_id, plant_id, session_id],
+        ).fetchone()
+    return removed is not None
+
+
+def list_plant_installations(
+    plant_id: UUID, session_id: UUID
+) -> list[dict[str, Any]]:
+    with duckdb.connect(str(get_database_path())) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT {INSTALLATION_COLUMNS}
+            FROM installations
+            WHERE plant_id = ? AND session_id = ?
+            ORDER BY created_at
+            """,
+            [plant_id, session_id],
+        ).fetchall()
+    return [_installation_from_row(row) for row in rows]

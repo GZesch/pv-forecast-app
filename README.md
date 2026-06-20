@@ -38,10 +38,21 @@ Die folgenden Endpunkte verwalten PV-Anlagen dauerhaft in DuckDB:
 - `GET /installations/{id}` – eine Anlage anhand ihrer UUID abrufen
 - `DELETE /installations/{id}` – eine Anlage löschen
 
+Alle Anlagen-Endpunkte erwarten den Header `X-Session-ID` mit einer UUID. Das
+Streamlit-Frontend erzeugt beim ersten Besuch automatisch eine anonyme UUID und
+speichert sie in `st.session_state`. Anlagen, Forecasts und Historie sind dadurch
+nur innerhalb dieser Besucher-Session sichtbar; es gibt bewusst keine Anmeldung
+und kein User-Management.
+
 Im Streamlit-Frontend können Anlagen über ein Formular angelegt werden. Die
 Anlagenliste wird direkt nach dem Speichern neu vom Backend geladen. Der als
 Freitext eingegebene Standort wird im Backend über Nominatim/OpenStreetMap
-geocodiert; gespeichert werden die ermittelten Koordinaten.
+geocodiert; gespeichert werden die ermittelten Koordinaten und der unveränderte,
+getrimmte Standort-Freitext als nutzerfreundliches `location_label`. So bleibt
+beispielsweise die Eingabe `Stockholm` auch in der Anlagenliste `Stockholm`.
+Bestehende Datensätze ohne Ortslabel werden bei der Schema-Initialisierung mit
+gerundeten Koordinaten nachgetragen; auch das Frontend besitzt denselben
+Koordinaten-Fallback.
 
 Für einen öffentlich betriebenen Dienst sollte `NOMINATIM_USER_AGENT` auf eine
 eindeutige Anwendungskennung mit Kontaktmöglichkeit gesetzt werden. Die öffentliche
@@ -76,6 +87,18 @@ Jede erfolgreiche PV-Berechnung wird in `forecast_runs` und `forecast_points`
 gespeichert. `GET /installations/{id}/forecast-history` liefert standardmäßig
 die 20 neuesten Runs mit Zeitraum, Tageserträgen und Peak-Kennzahlen. Die
 zugehörigen Historieneinträge werden beim Löschen einer Anlage mit entfernt.
+Im öffentlichen Standardmodus ist die Historie ausgeblendet und wird nur bei
+aktivem Expertenmodus geladen und angezeigt.
+
+## Kraftwerke
+
+Mehrere sessiongebundene Einzelanlagen können zu einem Kraftwerk gruppiert
+werden. Die Tabelle `plants` speichert die Gruppe; `installations.plant_id` ist
+optional, sodass bestehende Einzelanlagen unverändert funktionieren. Über
+`GET /plants/{id}/pv-forecast` werden die Stundenwerte aller zugeordneten
+Anlagen timestampgenau summiert und daraus gemeinsame Tageserträge sowie
+Peak-Kennzahlen berechnet. Im Expertenmodus liefert das Frontend zusätzlich die
+Einzelkurven der enthaltenen Anlagen.
 
 Falls ein bereits laufendes Docker-Setup einen generischen 404-Fehler für diesen
 Endpunkt liefert, müssen Backend und Frontend mit dem aktuellen Quellstand neu

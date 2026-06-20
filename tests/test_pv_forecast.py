@@ -74,3 +74,30 @@ def test_forecast_metrics_return_peak_and_first_peak_timestamp() -> None:
 
     assert metrics.peak_power_kw == 7.25
     assert metrics.peak_timestamp.isoformat() == "2026-06-20T11:00:00+00:00"
+
+
+def test_aggregate_hourly_forecasts_sums_matching_timestamps() -> None:
+    east = [
+        PVForecastRow(
+            timestamp="2026-06-20T10:00:00Z", predicted_power_kw=2.0
+        ),
+        PVForecastRow(
+            timestamp="2026-06-20T11:00:00Z", predicted_power_kw=3.0
+        ),
+    ]
+    west = [
+        PVForecastRow(
+            timestamp="2026-06-20T10:00:00Z", predicted_power_kw=4.0
+        ),
+        PVForecastRow(
+            timestamp="2026-06-20T11:00:00Z", predicted_power_kw=1.5
+        ),
+    ]
+
+    total = PVForecastService.aggregate_hourly_forecasts([east, west])
+
+    assert [point.predicted_power_kw for point in total] == [6.0, 4.5]
+    assert [point.timestamp.isoformat() for point in total] == [
+        "2026-06-20T10:00:00+00:00",
+        "2026-06-20T11:00:00+00:00",
+    ]

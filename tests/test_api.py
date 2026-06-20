@@ -1,10 +1,22 @@
-from fastapi.testclient import TestClient
 import duckdb
+from fastapi.testclient import TestClient as FastAPITestClient
+from uuid import UUID
 
 from backend.geocoding import Coordinates, LocationNotFoundError
+from backend.database import initialize_database, list_installations
 from backend.main import app
 from backend.models import PVForecastRow, WeatherForecastRow
 from backend.services.open_meteo import WeatherServiceError
+
+
+SESSION_HEADERS = {"X-Session-ID": "11111111-1111-1111-1111-111111111111"}
+OTHER_SESSION_HEADERS = {"X-Session-ID": "22222222-2222-2222-2222-222222222222"}
+
+
+class TestClient(FastAPITestClient):
+    def __init__(self, application, **kwargs) -> None:
+        headers = {**SESSION_HEADERS, **kwargs.pop("headers", {})}
+        super().__init__(application, headers=headers, **kwargs)
 
 
 def test_weather_forecast_route_is_registered() -> None:
@@ -94,6 +106,7 @@ def test_installation_endpoints(tmp_path, monkeypatch) -> None:
         assert create_response.status_code == 201
         created = create_response.json()
         assert created["name"] == payload["name"]
+        assert created["location_label"] == payload["location"]
         assert created["latitude"] == 52.52
         assert created["longitude"] == 13.405
         assert created["id"]
@@ -116,6 +129,37 @@ def test_unknown_installation_returns_404(tmp_path, monkeypatch) -> None:
 
     assert response.status_code == 404
     assert response.json() == {"detail": "PV-Anlage wurde nicht gefunden."}
+
+
+def test_original_stockholm_location_is_persisted_and_listed(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.duckdb"))
+
+    async def fake_geocode(_: str) -> Coordinates:
+        return Coordinates(
+            latitude=59.3293,
+            longitude=18.0686,
+            location_label="Stockholm, Sverige",
+        )
+
+    monkeypatch.setattr("backend.main.geocode_location", fake_geocode)
+    payload = {
+        "name": "Anlage Stockholm",
+        "location": "Stockholm",
+        "peak_power_kwp": 8.0,
+        "azimuth": 180.0,
+        "tilt": 30.0,
+    }
+
+    with TestClient(app) as client:
+        response = client.post("/installations", json=payload)
+        list_response = client.get("/installations")
+
+    assert response.status_code == 201
+    assert response.json()["location_label"] == "Stockholm"
+    assert list_response.status_code == 200
+    assert list_response.json()[0]["location_label"] == "Stockholm"
 
 
 def test_delete_installation(tmp_path, monkeypatch) -> None:
@@ -437,3 +481,318 @@ def test_forecast_history_for_unknown_installation_returns_404(
 
     assert response.status_code == 404
     assert response.json() == {"detail": "PV-Anlage wurde nicht gefunden."}
+
+
+def test_installation_endpoints_require_session_header(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.duckdb"))
+    unknown_id = "00000000-0000-0000-0000-000000000000"
+
+    with FastAPITestClient(app) as client:
+        responses = [
+            client.post(
+                "/installations",
+                json={
+                    "name": "Ohne Session",
+                    "location": "Berlin",
+                    "peak_power_kwp": 5.0,
+                    "azimuth": 180.0,
+                    "tilt": 30.0,
+                },
+            ),
+            client.get("/installations"),
+            client.get(f"/installations/{unknown_id}"),
+            client.delete(f"/installations/{unknown_id}"),
+            client.get(f"/installations/{unknown_id}/weather-forecast"),
+            client.get(f"/installations/{unknown_id}/pv-forecast"),
+            client.get(f"/installations/{unknown_id}/forecast-history"),
+            client.get("/plants"),
+            client.get(f"/plants/{unknown_id}"),
+            client.get(f"/plants/{unknown_id}/pv-forecast"),
+        ]
+
+    assert all(response.status_code == 400 for response in responses)
+    assert all("X-Session-ID" in response.json()["detail"] for response in responses)
+
+
+def test_invalid_session_header_returns_400(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.duckdb"))
+
+    with FastAPITestClient(
+        app, headers={"X-Session-ID": "keine-uuid"}
+    ) as client:
+        response = client.get("/installations")
+
+    assert response.status_code == 400
+    assert "gültige UUID" in response.json()["detail"]
+
+
+def test_sessions_cannot_access_each_others_installations(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.duckdb"))
+
+    async def fake_geocode(_: str) -> Coordinates:
+        return Coordinates(latitude=52.52, longitude=13.405)
+
+    monkeypatch.setattr("backend.main.geocode_location", fake_geocode)
+    payload = {
+        "name": "Private Anlage",
+        "location": "Berlin",
+        "peak_power_kwp": 8.0,
+        "azimuth": 180.0,
+        "tilt": 30.0,
+    }
+
+    with TestClient(app) as owner:
+        installation = owner.post("/installations", json=payload).json()
+        assert installation["location_label"] == "Berlin"
+
+    with TestClient(app, headers=OTHER_SESSION_HEADERS) as visitor:
+        assert visitor.get("/installations").json() == []
+        protected_responses = [
+            visitor.get(f"/installations/{installation['id']}"),
+            visitor.delete(f"/installations/{installation['id']}"),
+            visitor.get(
+                f"/installations/{installation['id']}/weather-forecast"
+            ),
+            visitor.get(f"/installations/{installation['id']}/pv-forecast"),
+            visitor.get(
+                f"/installations/{installation['id']}/forecast-history"
+            ),
+        ]
+
+    assert all(response.status_code == 404 for response in protected_responses)
+
+    with TestClient(app) as owner:
+        assert owner.get(f"/installations/{installation['id']}").status_code == 200
+
+
+def test_database_migration_adds_optional_location_label(tmp_path, monkeypatch) -> None:
+    database_path = tmp_path / "legacy.duckdb"
+    monkeypatch.setenv("DATABASE_PATH", str(database_path))
+    session_id = UUID("11111111-1111-1111-1111-111111111111")
+
+    with duckdb.connect(str(database_path)) as connection:
+        connection.execute(
+            """
+            CREATE TABLE installations (
+                id UUID PRIMARY KEY,
+                session_id UUID NOT NULL,
+                name TEXT NOT NULL,
+                latitude DOUBLE NOT NULL,
+                longitude DOUBLE NOT NULL,
+                peak_power_kwp DOUBLE NOT NULL,
+                azimuth DOUBLE NOT NULL,
+                tilt DOUBLE NOT NULL,
+                created_at TIMESTAMP NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO installations VALUES (
+                'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+                ?, 'Legacy-Anlage', 52.52, 13.405, 8.0, 180.0, 30.0,
+                '2026-01-01 12:00:00'
+            )
+            """,
+            [session_id],
+        )
+
+    initialize_database()
+
+    with duckdb.connect(str(database_path), read_only=True) as connection:
+        columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info('installations')"
+            ).fetchall()
+        }
+
+    assert "session_id" in columns
+    assert "location_label" in columns
+    assert "plant_id" in columns
+    with duckdb.connect(str(database_path), read_only=True) as connection:
+        plant_table_exists = connection.execute(
+            """
+            SELECT count(*) FROM information_schema.tables
+            WHERE table_name = 'plants'
+            """
+        ).fetchone()[0]
+    assert plant_table_exists == 1
+    legacy_installations = list_installations(session_id)
+    assert len(legacy_installations) == 1
+    assert legacy_installations[0]["name"] == "Legacy-Anlage"
+    assert legacy_installations[0]["location_label"].startswith("52.52, 13.4")
+
+
+def test_plant_crud_and_installation_assignment(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.duckdb"))
+
+    async def fake_geocode(_: str) -> Coordinates:
+        return Coordinates(latitude=52.52, longitude=13.405)
+
+    monkeypatch.setattr("backend.main.geocode_location", fake_geocode)
+    installation_payload = {
+        "name": "Hausdach Ost",
+        "location": "Berlin",
+        "peak_power_kwp": 5.0,
+        "azimuth": 90.0,
+        "tilt": 30.0,
+    }
+
+    with TestClient(app) as client:
+        installation = client.post(
+            "/installations", json=installation_payload
+        ).json()
+        create_response = client.post(
+            "/plants",
+            json={"name": "Wohnhaus", "location_label": "Berlin"},
+        )
+        plant = create_response.json()
+
+        assert create_response.status_code == 201
+        assert client.get("/plants").json() == [plant]
+        assert client.get(f"/plants/{plant['id']}").json() == plant
+
+        assign_response = client.post(
+            f"/plants/{plant['id']}/installations/{installation['id']}"
+        )
+        assigned_installation = client.get(
+            f"/installations/{installation['id']}"
+        ).json()
+        assert assign_response.status_code == 204
+        assert assigned_installation["plant_id"] == plant["id"]
+
+        remove_response = client.delete(
+            f"/plants/{plant['id']}/installations/{installation['id']}"
+        )
+        unassigned_installation = client.get(
+            f"/installations/{installation['id']}"
+        ).json()
+        assert remove_response.status_code == 204
+        assert unassigned_installation["plant_id"] is None
+
+        assert client.post(
+            f"/plants/{plant['id']}/installations/{installation['id']}"
+        ).status_code == 204
+        assert client.delete(f"/plants/{plant['id']}").status_code == 204
+        assert client.get(f"/plants/{plant['id']}").status_code == 404
+        assert client.get(f"/installations/{installation['id']}").json()[
+            "plant_id"
+        ] is None
+
+
+def test_plant_forecast_sums_component_installations(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.duckdb"))
+
+    async def fake_geocode(_: str) -> Coordinates:
+        return Coordinates(latitude=52.52, longitude=13.405)
+
+    async def fake_weather(**_) -> list[WeatherForecastRow]:
+        return [
+            WeatherForecastRow(
+                timestamp="2026-06-20T10:00:00Z",
+                temperature_2m=20.0,
+                cloud_cover=10.0,
+                direct_radiation=500.0,
+                diffuse_radiation=100.0,
+                wind_speed_10m=2.0,
+            )
+        ]
+
+    def fake_calculate(**kwargs) -> list[PVForecastRow]:
+        if kwargs["peak_power_kwp"] == 5.0:
+            powers = (1.0, 2.0)
+        else:
+            powers = (3.0, 1.0)
+        return [
+            PVForecastRow(
+                timestamp="2026-06-20T10:00:00Z", predicted_power_kw=powers[0]
+            ),
+            PVForecastRow(
+                timestamp="2026-06-20T11:00:00Z", predicted_power_kw=powers[1]
+            ),
+        ]
+
+    monkeypatch.setattr("backend.main.geocode_location", fake_geocode)
+    monkeypatch.setattr(
+        "backend.main.open_meteo_service.get_hourly_forecast", fake_weather
+    )
+    monkeypatch.setattr("backend.main.pv_forecast_service.calculate", fake_calculate)
+
+    with TestClient(app) as client:
+        plant = client.post("/plants", json={"name": "Gesamt"}).json()
+        installations = []
+        for name, peak, azimuth in (
+            ("Ost", 5.0, 90.0),
+            ("West", 6.0, 270.0),
+        ):
+            installation = client.post(
+                "/installations",
+                json={
+                    "name": name,
+                    "location": "Berlin",
+                    "peak_power_kwp": peak,
+                    "azimuth": azimuth,
+                    "tilt": 30.0,
+                },
+            ).json()
+            installations.append(installation)
+            assert client.post(
+                f"/plants/{plant['id']}/installations/{installation['id']}"
+            ).status_code == 204
+
+        response = client.get(f"/plants/{plant['id']}/pv-forecast")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["hourly"] == [
+        {"timestamp": "2026-06-20T10:00:00Z", "predicted_power_kw": 4.0},
+        {"timestamp": "2026-06-20T11:00:00Z", "predicted_power_kw": 3.0},
+    ]
+    assert payload["daily"] == [
+        {"date": "2026-06-20", "daily_energy_kwh": 7.0}
+    ]
+    assert payload["metrics"] == {
+        "peak_power_kw": 4.0,
+        "peak_timestamp": "2026-06-20T10:00:00Z",
+    }
+    assert [component["name"] for component in payload["components"]] == [
+        "Ost",
+        "West",
+    ]
+
+
+def test_plant_session_isolation(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.duckdb"))
+
+    async def fake_geocode(_: str) -> Coordinates:
+        return Coordinates(latitude=52.52, longitude=13.405)
+
+    monkeypatch.setattr("backend.main.geocode_location", fake_geocode)
+
+    with TestClient(app) as owner:
+        plant = owner.post("/plants", json={"name": "Privates Kraftwerk"}).json()
+        installation = owner.post(
+            "/installations",
+            json={
+                "name": "Private Anlage",
+                "location": "Berlin",
+                "peak_power_kwp": 5.0,
+                "azimuth": 180.0,
+                "tilt": 30.0,
+            },
+        ).json()
+
+    with TestClient(app, headers=OTHER_SESSION_HEADERS) as visitor:
+        assert visitor.get("/plants").json() == []
+        assert visitor.get(f"/plants/{plant['id']}").status_code == 404
+        assert visitor.delete(f"/plants/{plant['id']}").status_code == 404
+        assert visitor.get(f"/plants/{plant['id']}/pv-forecast").status_code == 404
+        visitor_plant = visitor.post(
+            "/plants", json={"name": "Fremdes Kraftwerk"}
+        ).json()
+        assert visitor.post(
+            f"/plants/{visitor_plant['id']}/installations/{installation['id']}"
+        ).status_code == 404

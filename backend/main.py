@@ -1,18 +1,25 @@
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import Annotated, AsyncIterator
 
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Query, Response, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, status
 
 from backend.database import (
     ForecastPersistenceError,
+    assign_installation_to_plant,
     create_installation,
+    create_plant,
     delete_installation,
+    delete_plant,
     get_installation,
+    get_plant,
     initialize_database,
     list_forecast_runs,
     list_installations,
+    list_plant_installations,
+    list_plants,
+    remove_installation_from_plant,
     save_forecast_run,
 )
 from backend.geocoding import (
@@ -24,6 +31,10 @@ from backend.models import (
     ForecastHistoryRun,
     Installation,
     InstallationCreate,
+    Plant,
+    PlantCreate,
+    PlantForecastComponent,
+    PlantPVForecastResponse,
     PVForecastResponse,
     WeatherForecastRow,
 )
@@ -38,6 +49,27 @@ from backend.services.pv_forecast import (
 )
 
 INSTALLATION_NOT_FOUND = "PV-Anlage wurde nicht gefunden."
+SESSION_HEADER = "X-Session-ID"
+
+
+def require_session_id(
+    value: Annotated[str | None, Header(alias=SESSION_HEADER)] = None,
+) -> UUID:
+    if value is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Der Header {SESSION_HEADER} fehlt.",
+        )
+    try:
+        return UUID(value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Der Header {SESSION_HEADER} enthält keine gültige UUID.",
+        ) from exc
+
+
+SessionId = Annotated[UUID, Depends(require_session_id)]
 
 
 @asynccontextmanager
@@ -70,7 +102,9 @@ async def health_check() -> dict[str, str]:
     status_code=status.HTTP_201_CREATED,
     tags=["installations"],
 )
-async def add_installation(data: InstallationCreate) -> Installation:
+async def add_installation(
+    data: InstallationCreate, session_id: SessionId
+) -> Installation:
     try:
         coordinates = await geocode_location(data.location)
     except LocationNotFoundError as exc:
@@ -85,7 +119,12 @@ async def add_installation(data: InstallationCreate) -> Installation:
         ) from exc
 
     return Installation.model_validate(
-        create_installation(data, coordinates.latitude, coordinates.longitude)
+        create_installation(
+            data,
+            coordinates.latitude,
+            coordinates.longitude,
+            session_id,
+        )
     )
 
 
@@ -94,8 +133,11 @@ async def add_installation(data: InstallationCreate) -> Installation:
     response_model=list[Installation],
     tags=["installations"],
 )
-async def get_installations() -> list[Installation]:
-    return [Installation.model_validate(item) for item in list_installations()]
+async def get_installations(session_id: SessionId) -> list[Installation]:
+    return [
+        Installation.model_validate(item)
+        for item in list_installations(session_id)
+    ]
 
 
 @app.get(
@@ -103,8 +145,10 @@ async def get_installations() -> list[Installation]:
     response_model=Installation,
     tags=["installations"],
 )
-async def get_installation_by_id(installation_id: UUID) -> Installation:
-    installation = get_installation(installation_id)
+async def get_installation_by_id(
+    installation_id: UUID, session_id: SessionId
+) -> Installation:
+    installation = get_installation(installation_id, session_id)
     if installation is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -118,8 +162,10 @@ async def get_installation_by_id(installation_id: UUID) -> Installation:
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["installations"],
 )
-async def delete_installation_by_id(installation_id: UUID) -> Response:
-    if not delete_installation(installation_id):
+async def delete_installation_by_id(
+    installation_id: UUID, session_id: SessionId
+) -> Response:
+    if not delete_installation(installation_id, session_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=INSTALLATION_NOT_FOUND,
@@ -134,9 +180,10 @@ async def delete_installation_by_id(installation_id: UUID) -> Response:
 )
 async def get_weather_forecast(
     installation_id: UUID,
+    session_id: SessionId,
     forecast_days: int = Query(default=7, ge=1, le=16),
 ) -> list[WeatherForecastRow]:
-    installation = get_installation(installation_id)
+    installation = get_installation(installation_id, session_id)
     if installation is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -168,9 +215,10 @@ async def get_weather_forecast(
 )
 async def get_pv_forecast(
     installation_id: UUID,
+    session_id: SessionId,
     forecast_days: int = Query(default=7, ge=1, le=16),
 ) -> PVForecastResponse:
-    installation = get_installation(installation_id)
+    installation = get_installation(installation_id, session_id)
     if installation is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -229,9 +277,10 @@ async def get_pv_forecast(
 )
 async def get_forecast_history(
     installation_id: UUID,
+    session_id: SessionId,
     limit: int = Query(default=20, ge=1, le=100),
 ) -> list[ForecastHistoryRun]:
-    if get_installation(installation_id) is None:
+    if get_installation(installation_id, session_id) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=INSTALLATION_NOT_FOUND,
@@ -245,5 +294,155 @@ async def get_forecast_history(
     except ForecastPersistenceError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+
+@app.post(
+    "/plants",
+    response_model=Plant,
+    status_code=status.HTTP_201_CREATED,
+    tags=["plants"],
+)
+async def add_plant(data: PlantCreate, session_id: SessionId) -> Plant:
+    return Plant.model_validate(create_plant(data, session_id))
+
+
+@app.get("/plants", response_model=list[Plant], tags=["plants"])
+async def get_plants(session_id: SessionId) -> list[Plant]:
+    return [Plant.model_validate(item) for item in list_plants(session_id)]
+
+
+@app.get("/plants/{plant_id}", response_model=Plant, tags=["plants"])
+async def get_plant_by_id(plant_id: UUID, session_id: SessionId) -> Plant:
+    plant = get_plant(plant_id, session_id)
+    if plant is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Kraftwerk wurde nicht gefunden.",
+        )
+    return Plant.model_validate(plant)
+
+
+@app.delete(
+    "/plants/{plant_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["plants"],
+)
+async def delete_plant_by_id(plant_id: UUID, session_id: SessionId) -> Response:
+    if not delete_plant(plant_id, session_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Kraftwerk wurde nicht gefunden.",
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post(
+    "/plants/{plant_id}/installations/{installation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["plants"],
+)
+async def add_installation_to_plant(
+    plant_id: UUID, installation_id: UUID, session_id: SessionId
+) -> Response:
+    if not assign_installation_to_plant(plant_id, installation_id, session_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Kraftwerk oder PV-Anlage wurde nicht gefunden.",
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.delete(
+    "/plants/{plant_id}/installations/{installation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["plants"],
+)
+async def delete_installation_from_plant(
+    plant_id: UUID, installation_id: UUID, session_id: SessionId
+) -> Response:
+    if not remove_installation_from_plant(plant_id, installation_id, session_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Zuordnung wurde nicht gefunden.",
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get(
+    "/plants/{plant_id}/pv-forecast",
+    response_model=PlantPVForecastResponse,
+    tags=["plants", "forecast"],
+)
+async def get_plant_pv_forecast(
+    plant_id: UUID,
+    session_id: SessionId,
+    forecast_days: int = Query(default=7, ge=1, le=16),
+) -> PlantPVForecastResponse:
+    plant = get_plant(plant_id, session_id)
+    if plant is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Kraftwerk wurde nicht gefunden.",
+        )
+
+    installations = list_plant_installations(plant_id, session_id)
+    if not installations:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Dem Kraftwerk sind noch keine PV-Anlagen zugeordnet.",
+        )
+
+    try:
+        components: list[PlantForecastComponent] = []
+        component_forecasts = []
+        for installation in installations:
+            weather = await open_meteo_service.get_hourly_forecast(
+                latitude=installation["latitude"],
+                longitude=installation["longitude"],
+                forecast_days=forecast_days,
+            )
+            hourly = pv_forecast_service.calculate(
+                latitude=installation["latitude"],
+                longitude=installation["longitude"],
+                peak_power_kwp=installation["peak_power_kwp"],
+                azimuth=installation["azimuth"],
+                tilt=installation["tilt"],
+                weather=weather,
+            )
+            component_forecasts.append(hourly)
+            components.append(
+                PlantForecastComponent(
+                    installation_id=installation["id"],
+                    name=installation["name"],
+                    hourly=hourly,
+                )
+            )
+
+        hourly_total = pv_forecast_service.aggregate_hourly_forecasts(
+            component_forecasts
+        )
+        daily_total = pv_forecast_service.calculate_daily_energy(hourly_total)
+        metrics = pv_forecast_service.calculate_metrics(hourly_total)
+        return PlantPVForecastResponse(
+            hourly=hourly_total,
+            daily=daily_total,
+            metrics=metrics,
+            components=components,
+        )
+    except WeatherServiceTimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=str(exc),
+        ) from exc
+    except WeatherServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+    except PVForecastError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc

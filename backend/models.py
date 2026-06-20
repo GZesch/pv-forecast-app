@@ -16,7 +16,9 @@ class Installation(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    plant_id: UUID | None = None
     name: str
+    location_label: str | None = None
     latitude: float
     longitude: float
     peak_power_kwp: float
@@ -63,3 +65,25 @@ class ForecastHistoryRun(BaseModel):
     daily: list[DailyEnergyYield]
     peak_power_kw: float
     peak_timestamp: datetime
+
+
+class PlantCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    location_label: str | None = Field(default=None, max_length=500)
+
+
+class Plant(BaseModel):
+    id: UUID
+    name: str
+    location_label: str | None = None
+    created_at: datetime
+
+
+class PlantForecastComponent(BaseModel):
+    installation_id: UUID
+    name: str
+    hourly: list[PVForecastRow]
+
+
+class PlantPVForecastResponse(PVForecastResponse):
+    components: list[PlantForecastComponent]
