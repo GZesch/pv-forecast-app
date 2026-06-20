@@ -1,0 +1,26 @@
+[project]
+name = "pv-forecast-app"
+version = "0.1.0"
+description = "Web application for photovoltaic power forecasting"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "duckdb>=1.1,<2",
+    "fastapi>=0.115,<1",
+    "httpx>=0.27,<1",
+    "numpy>=1.26,<3",
+    "pandas>=2.2,<3",
+    "plotly>=5.24,<7",
+    "pvlib>=0.11,<1",
+    "streamlit>=1.40,<2",
+    "uvicorn[standard]>=0.32,<1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<9",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

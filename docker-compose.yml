@@ -1,0 +1,56 @@
+services:
+  backend:
+    build:
+      context: .
+      target: backend
+    environment:
+      DATABASE_PATH: /app/database/pv_forecast.duckdb
+      NOMINATIM_USER_AGENT: pv-forecast-app/0.1
+    volumes:
+      - pv_data:/app/database
+      - ./backend:/app/backend:ro
+    command:
+      - uv
+      - run
+      - --no-sync
+      - uvicorn
+      - backend.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - uv
+        - run
+        - --no-sync
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      target: frontend
+    environment:
+      API_BASE_URL: http://backend:8000
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./frontend:/app/frontend:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pv_data:

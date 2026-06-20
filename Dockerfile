@@ -1,0 +1,23 @@
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+RUN uv sync --no-dev --no-install-project
+
+COPY backend ./backend
+COPY frontend ./frontend
+
+FROM base AS backend
+EXPOSE 8000
+CMD ["uv", "run", "--no-sync", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+FROM base AS frontend
+EXPOSE 8501
+CMD ["uv", "run", "--no-sync", "streamlit", "run", "frontend/app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+

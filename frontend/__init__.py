@@ -1,0 +1,2 @@
+"""PV forecast frontend package."""
+
