@@ -101,10 +101,11 @@ Peak-Kennzahlen berechnet. Im Expertenmodus liefert das Frontend zusätzlich die
 Einzelkurven der enthaltenen Anlagen.
 
 Open-Meteo-Antworten werden anhand auf vier Dezimalstellen gerundeter
-Koordinaten und des Prognosezeitraums 15 Minuten im Arbeitsspeicher gecacht.
+Koordinaten und des Prognosezeitraums 60 Minuten im Arbeitsspeicher gecacht.
 Innerhalb einer Kraftwerksprognose wird jeder gerundete Standort höchstens
-einmal abgefragt. HTTP 429 wird ohne automatische Retry-Schleife als temporäre
-Auslastung verständlich an das Frontend weitergegeben.
+einmal abgefragt. Eine Drosselung des Wetterdienstes wird ohne automatische
+Retry-Schleife als temporäre Auslastung verständlich an das Frontend
+weitergegeben; technische HTTP-Details werden nicht angezeigt.
 
 Falls ein bereits laufendes Docker-Setup einen generischen 404-Fehler für diesen
 Endpunkt liefert, müssen Backend und Frontend mit dem aktuellen Quellstand neu

@@ -45,7 +45,7 @@ class OpenMeteoService:
         self.cache_ttl_seconds = (
             cache_ttl_seconds
             if cache_ttl_seconds is not None
-            else float(os.getenv("OPEN_METEO_CACHE_TTL_SECONDS", "900"))
+            else float(os.getenv("OPEN_METEO_CACHE_TTL_SECONDS", "3600"))
         )
         self._cache: dict[
             tuple[float, float, int],

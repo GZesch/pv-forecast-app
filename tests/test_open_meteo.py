@@ -94,7 +94,7 @@ def test_open_meteo_caches_nearby_coordinates() -> None:
             service = OpenMeteoService(
                 base_url="https://weather.test",
                 client=client,
-                cache_ttl_seconds=900,
+                cache_ttl_seconds=3600,
             )
             first = await service.get_hourly_forecast(48.13701, 11.57501, 2)
             second = await service.get_hourly_forecast(48.13702, 11.57502, 2)
@@ -103,6 +103,13 @@ def test_open_meteo_caches_nearby_coordinates() -> None:
 
     asyncio.run(run_test())
     assert request_count == 1
+
+
+def test_open_meteo_default_cache_ttl_is_one_hour(monkeypatch) -> None:
+    monkeypatch.delenv("OPEN_METEO_CACHE_TTL_SECONDS", raising=False)
+    service = OpenMeteoService(base_url="https://weather.test")
+
+    assert service.cache_ttl_seconds == 3600
 
 
 def test_open_meteo_translates_http_429() -> None:

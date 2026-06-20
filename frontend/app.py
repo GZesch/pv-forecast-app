@@ -4,6 +4,7 @@ from uuid import uuid4
 import httpx
 import streamlit as st
 
+from api_errors import response_error_message
 from installation_display import location_columns
 from time_display import (
     create_hourly_chart,
@@ -73,14 +74,6 @@ UNFAVORABLE_ORIENTATIONS = {
     "Nordnordost",
     "Nordost",
 }
-
-
-def response_error_message(response: httpx.Response, fallback: str) -> str:
-    try:
-        detail = response.json().get("detail")
-    except (ValueError, AttributeError):
-        detail = None
-    return detail or fallback
 
 
 def orientation_from_azimuth(azimuth: float) -> str:
