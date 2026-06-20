@@ -100,6 +100,12 @@ Anlagen timestampgenau summiert und daraus gemeinsame Tageserträge sowie
 Peak-Kennzahlen berechnet. Im Expertenmodus liefert das Frontend zusätzlich die
 Einzelkurven der enthaltenen Anlagen.
 
+Open-Meteo-Antworten werden anhand auf vier Dezimalstellen gerundeter
+Koordinaten und des Prognosezeitraums 15 Minuten im Arbeitsspeicher gecacht.
+Innerhalb einer Kraftwerksprognose wird jeder gerundete Standort höchstens
+einmal abgefragt. HTTP 429 wird ohne automatische Retry-Schleife als temporäre
+Auslastung verständlich an das Frontend weitergegeben.
+
 Falls ein bereits laufendes Docker-Setup einen generischen 404-Fehler für diesen
 Endpunkt liefert, müssen Backend und Frontend mit dem aktuellen Quellstand neu
 gebaut werden:

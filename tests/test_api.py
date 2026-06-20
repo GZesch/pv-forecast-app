@@ -6,7 +6,10 @@ from backend.geocoding import Coordinates, LocationNotFoundError
 from backend.database import initialize_database, list_installations
 from backend.main import app
 from backend.models import PVForecastRow, WeatherForecastRow
-from backend.services.open_meteo import WeatherServiceError
+from backend.services.open_meteo import (
+    WeatherServiceError,
+    WeatherServiceRateLimitError,
+)
 
 
 SESSION_HEADERS = {"X-Session-ID": "11111111-1111-1111-1111-111111111111"}
@@ -689,7 +692,11 @@ def test_plant_forecast_sums_component_installations(tmp_path, monkeypatch) -> N
     async def fake_geocode(_: str) -> Coordinates:
         return Coordinates(latitude=52.52, longitude=13.405)
 
+    weather_calls = 0
+
     async def fake_weather(**_) -> list[WeatherForecastRow]:
+        nonlocal weather_calls
+        weather_calls += 1
         return [
             WeatherForecastRow(
                 timestamp="2026-06-20T10:00:00Z",
@@ -704,8 +711,10 @@ def test_plant_forecast_sums_component_installations(tmp_path, monkeypatch) -> N
     def fake_calculate(**kwargs) -> list[PVForecastRow]:
         if kwargs["peak_power_kwp"] == 5.0:
             powers = (1.0, 2.0)
-        else:
+        elif kwargs["peak_power_kwp"] == 6.0:
             powers = (3.0, 1.0)
+        else:
+            powers = (2.0, 2.0)
         return [
             PVForecastRow(
                 timestamp="2026-06-20T10:00:00Z", predicted_power_kw=powers[0]
@@ -727,6 +736,7 @@ def test_plant_forecast_sums_component_installations(tmp_path, monkeypatch) -> N
         for name, peak, azimuth in (
             ("Ost", 5.0, 90.0),
             ("West", 6.0, 270.0),
+            ("Gartenschuppen", 2.5, 180.0),
         ):
             installation = client.post(
                 "/installations",
@@ -746,21 +756,23 @@ def test_plant_forecast_sums_component_installations(tmp_path, monkeypatch) -> N
         response = client.get(f"/plants/{plant['id']}/pv-forecast")
 
     assert response.status_code == 200
+    assert weather_calls == 1
     payload = response.json()
     assert payload["hourly"] == [
-        {"timestamp": "2026-06-20T10:00:00Z", "predicted_power_kw": 4.0},
-        {"timestamp": "2026-06-20T11:00:00Z", "predicted_power_kw": 3.0},
+        {"timestamp": "2026-06-20T10:00:00Z", "predicted_power_kw": 6.0},
+        {"timestamp": "2026-06-20T11:00:00Z", "predicted_power_kw": 5.0},
     ]
     assert payload["daily"] == [
-        {"date": "2026-06-20", "daily_energy_kwh": 7.0}
+        {"date": "2026-06-20", "daily_energy_kwh": 11.0}
     ]
     assert payload["metrics"] == {
-        "peak_power_kw": 4.0,
+        "peak_power_kw": 6.0,
         "peak_timestamp": "2026-06-20T10:00:00Z",
     }
     assert [component["name"] for component in payload["components"]] == [
         "Ost",
         "West",
+        "Gartenschuppen",
     ]
 
 
@@ -796,3 +808,49 @@ def test_plant_session_isolation(tmp_path, monkeypatch) -> None:
         assert visitor.post(
             f"/plants/{visitor_plant['id']}/installations/{installation['id']}"
         ).status_code == 404
+
+
+def test_plant_forecast_returns_friendly_rate_limit_error(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.duckdb"))
+
+    async def fake_geocode(_: str) -> Coordinates:
+        return Coordinates(latitude=52.52, longitude=13.405)
+
+    async def rate_limited_weather(**_) -> list[WeatherForecastRow]:
+        raise WeatherServiceRateLimitError(
+            "Der Wetterdienst ist kurzzeitig ausgelastet. "
+            "Bitte in einigen Minuten erneut versuchen."
+        )
+
+    monkeypatch.setattr("backend.main.geocode_location", fake_geocode)
+    monkeypatch.setattr(
+        "backend.main.open_meteo_service.get_hourly_forecast",
+        rate_limited_weather,
+    )
+
+    with TestClient(app) as client:
+        plant = client.post("/plants", json={"name": "Gesamt"}).json()
+        installation = client.post(
+            "/installations",
+            json={
+                "name": "Dach",
+                "location": "Berlin",
+                "peak_power_kwp": 5.0,
+                "azimuth": 180.0,
+                "tilt": 30.0,
+            },
+        ).json()
+        client.post(
+            f"/plants/{plant['id']}/installations/{installation['id']}"
+        )
+        response = client.get(f"/plants/{plant['id']}/pv-forecast")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": (
+            "Der Wetterdienst ist kurzzeitig ausgelastet. "
+            "Bitte in einigen Minuten erneut versuchen."
+        )
+    }

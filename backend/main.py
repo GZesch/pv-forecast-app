@@ -40,6 +40,7 @@ from backend.models import (
 )
 from backend.services.open_meteo import (
     WeatherServiceError,
+    WeatherServiceRateLimitError,
     WeatherServiceTimeoutError,
     open_meteo_service,
 )
@@ -201,6 +202,11 @@ async def get_weather_forecast(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail=str(exc),
         ) from exc
+    except WeatherServiceRateLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
     except WeatherServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -251,6 +257,11 @@ async def get_pv_forecast(
     except WeatherServiceTimeoutError as exc:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=str(exc),
+        ) from exc
+    except WeatherServiceRateLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
         ) from exc
     except WeatherServiceError as exc:
@@ -397,12 +408,21 @@ async def get_plant_pv_forecast(
     try:
         components: list[PlantForecastComponent] = []
         component_forecasts = []
+        weather_by_location: dict[tuple[float, float, int], list[WeatherForecastRow]] = {}
         for installation in installations:
-            weather = await open_meteo_service.get_hourly_forecast(
-                latitude=installation["latitude"],
-                longitude=installation["longitude"],
-                forecast_days=forecast_days,
+            weather_key = (
+                round(installation["latitude"], 4),
+                round(installation["longitude"], 4),
+                forecast_days,
             )
+            weather = weather_by_location.get(weather_key)
+            if weather is None:
+                weather = await open_meteo_service.get_hourly_forecast(
+                    latitude=installation["latitude"],
+                    longitude=installation["longitude"],
+                    forecast_days=forecast_days,
+                )
+                weather_by_location[weather_key] = weather
             hourly = pv_forecast_service.calculate(
                 latitude=installation["latitude"],
                 longitude=installation["longitude"],
@@ -434,6 +454,11 @@ async def get_plant_pv_forecast(
     except WeatherServiceTimeoutError as exc:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=str(exc),
+        ) from exc
+    except WeatherServiceRateLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
         ) from exc
     except WeatherServiceError as exc:

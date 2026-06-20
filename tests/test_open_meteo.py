@@ -3,7 +3,11 @@ import asyncio
 import httpx
 import pytest
 
-from backend.services.open_meteo import OpenMeteoService, WeatherServiceError
+from backend.services.open_meteo import (
+    OpenMeteoService,
+    WeatherServiceError,
+    WeatherServiceRateLimitError,
+)
 
 
 def test_open_meteo_maps_hourly_response() -> None:
@@ -58,6 +62,64 @@ def test_open_meteo_rejects_incomplete_hourly_response() -> None:
         ) as client:
             service = OpenMeteoService(base_url="https://weather.test", client=client)
             with pytest.raises(WeatherServiceError, match="cloud_cover"):
+                await service.get_hourly_forecast(48.137, 11.575, 2)
+
+    asyncio.run(run_test())
+
+
+def test_open_meteo_caches_nearby_coordinates() -> None:
+    request_count = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx.Response(
+            200,
+            json={
+                "hourly": {
+                    "time": ["2026-06-19T12:00"],
+                    "temperature_2m": [23.5],
+                    "cloud_cover": [20.0],
+                    "direct_radiation": [650.0],
+                    "diffuse_radiation": [90.0],
+                    "wind_speed_10m": [8.5],
+                }
+            },
+        )
+
+    async def run_test() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler)
+        ) as client:
+            service = OpenMeteoService(
+                base_url="https://weather.test",
+                client=client,
+                cache_ttl_seconds=900,
+            )
+            first = await service.get_hourly_forecast(48.13701, 11.57501, 2)
+            second = await service.get_hourly_forecast(48.13702, 11.57502, 2)
+
+        assert first == second
+
+    asyncio.run(run_test())
+    assert request_count == 1
+
+
+def test_open_meteo_translates_http_429() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"reason": "rate limit"})
+
+    async def run_test() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler)
+        ) as client:
+            service = OpenMeteoService(
+                base_url="https://weather.test", client=client
+            )
+            with pytest.raises(
+                WeatherServiceRateLimitError,
+                match="Wetterdienst ist kurzzeitig ausgelastet",
+            ):
                 await service.get_hourly_forecast(48.137, 11.575, 2)
 
     asyncio.run(run_test())
