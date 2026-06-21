@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import time
 from datetime import datetime, timezone
@@ -8,6 +9,8 @@ import httpx
 
 from backend.models import WeatherForecastRow
 
+
+logger = logging.getLogger(__name__)
 
 HOURLY_FIELDS = (
     "temperature_2m",
@@ -59,6 +62,8 @@ class OpenMeteoService:
         latitude: float,
         longitude: float,
         forecast_days: int,
+        *,
+        force_refresh: bool = False,
     ) -> list[WeatherForecastRow]:
         """Load an hourly weather forecast for a location and period."""
         if not 1 <= forecast_days <= 16:
@@ -76,7 +81,7 @@ class OpenMeteoService:
             ]
             for expired_key in expired_keys:
                 self._cache.pop(expired_key, None)
-            if cached is not None:
+            if cached is not None and not force_refresh:
                 cached_at, cached_rows = cached
                 if now - cached_at < self.cache_ttl_seconds:
                     return list(cached_rows)
@@ -89,6 +94,7 @@ class OpenMeteoService:
                 "timezone": "UTC",
             }
 
+            response: httpx.Response | None = None
             try:
                 if self._client is not None:
                     response = await self._client.get(self.base_url, params=params)
@@ -96,30 +102,83 @@ class OpenMeteoService:
                     async with httpx.AsyncClient(timeout=15.0) as client:
                         response = await client.get(self.base_url, params=params)
                 response.raise_for_status()
-                payload = response.json()
             except httpx.TimeoutException as exc:
+                self._log_request_error(
+                    exc,
+                    latitude=latitude,
+                    longitude=longitude,
+                    forecast_days=forecast_days,
+                )
                 raise WeatherServiceTimeoutError(
                     "Open-Meteo hat nicht rechtzeitig geantwortet."
                 ) from exc
             except httpx.HTTPStatusError as exc:
+                logger.error(
+                    "Open-Meteo HTTP error status_code=%s request_url=%s "
+                    "latitude=%s longitude=%s forecast_days=%s response_body=%s",
+                    exc.response.status_code,
+                    exc.request.url,
+                    latitude,
+                    longitude,
+                    forecast_days,
+                    exc.response.text,
+                )
                 if exc.response.status_code == 429:
                     raise WeatherServiceRateLimitError(
                         "Der Wetterdienst ist kurzzeitig ausgelastet. "
                         "Bitte in einigen Minuten erneut versuchen."
                     ) from exc
                 raise WeatherServiceError(
-                    f"Open-Meteo hat mit HTTP {exc.response.status_code} geantwortet."
+                    "Der Wetterdienst ist derzeit nicht erreichbar. "
+                    "Bitte später erneut versuchen."
                 ) from exc
             except httpx.RequestError as exc:
+                self._log_request_error(
+                    exc,
+                    latitude=latitude,
+                    longitude=longitude,
+                    forecast_days=forecast_days,
+                )
                 raise WeatherServiceError(
                     "Open-Meteo ist derzeit nicht erreichbar."
                 ) from exc
+
+            try:
+                payload = response.json()
             except ValueError as exc:
+                logger.exception(
+                    "Open-Meteo JSON parsing error exception_type=%s "
+                    "exception_message=%s request_url=%s latitude=%s "
+                    "longitude=%s forecast_days=%s response_body=%s",
+                    type(exc).__name__,
+                    str(exc),
+                    response.request.url,
+                    latitude,
+                    longitude,
+                    forecast_days,
+                    response.text,
+                )
                 raise WeatherServiceError(
                     "Open-Meteo hat keine gültige JSON-Antwort geliefert."
                 ) from exc
 
-            rows = self._parse_hourly_data(payload)
+            try:
+                rows = self._parse_hourly_data(payload)
+            except WeatherServiceError as exc:
+                logger.exception(
+                    "Open-Meteo response parsing error exception_type=%s "
+                    "exception_message=%s request_url=%s latitude=%s "
+                    "longitude=%s forecast_days=%s response_body=%s",
+                    type(exc).__name__,
+                    str(exc),
+                    response.request.url,
+                    latitude,
+                    longitude,
+                    forecast_days,
+                    response.text,
+                )
+                raise
+
             if len(self._cache) >= self.cache_max_entries:
                 oldest_key = min(
                     self._cache, key=lambda key: self._cache[key][0]
@@ -127,6 +186,26 @@ class OpenMeteoService:
                 self._cache.pop(oldest_key, None)
             self._cache[cache_key] = (time.monotonic(), tuple(rows))
             return list(rows)
+
+    @staticmethod
+    def _log_request_error(
+        exc: httpx.RequestError,
+        *,
+        latitude: float,
+        longitude: float,
+        forecast_days: int,
+    ) -> None:
+        request_url = str(exc.request.url) if exc.request is not None else "unknown"
+        logger.exception(
+            "Open-Meteo request error exception_type=%s exception_message=%s "
+            "request_url=%s latitude=%s longitude=%s forecast_days=%s",
+            type(exc).__name__,
+            str(exc),
+            request_url,
+            latitude,
+            longitude,
+            forecast_days,
+        )
 
     @staticmethod
     def _parse_hourly_data(payload: Any) -> list[WeatherForecastRow]:

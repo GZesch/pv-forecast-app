@@ -101,6 +101,47 @@ async def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/debug/open-meteo", tags=["debug"])
+async def debug_open_meteo(
+    latitude: float = Query(alias="lat", ge=-90, le=90),
+    longitude: float = Query(alias="lon", ge=-180, le=180),
+    forecast_days: int = Query(default=1, ge=1, le=16),
+) -> dict[str, str | float | int | None]:
+    """Test Open-Meteo connectivity without reading or storing app data."""
+    try:
+        rows = await open_meteo_service.get_hourly_forecast(
+            latitude=latitude,
+            longitude=longitude,
+            forecast_days=forecast_days,
+            force_refresh=True,
+        )
+    except WeatherServiceTimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=str(exc),
+        ) from exc
+    except WeatherServiceRateLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except WeatherServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+    return {
+        "status": "ok",
+        "latitude": latitude,
+        "longitude": longitude,
+        "forecast_days": forecast_days,
+        "hourly_rows": len(rows),
+        "forecast_start": rows[0].timestamp.isoformat() if rows else None,
+        "forecast_end": rows[-1].timestamp.isoformat() if rows else None,
+    }
+
+
 @app.post(
     "/installations",
     response_model=Installation,

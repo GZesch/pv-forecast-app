@@ -130,3 +130,67 @@ def test_open_meteo_translates_http_429() -> None:
                 await service.get_hourly_forecast(48.137, 11.575, 2)
 
     asyncio.run(run_test())
+
+
+def test_open_meteo_logs_http_error_context(caplog) -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, text="upstream unavailable")
+
+    async def run_test() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler)
+        ) as client:
+            service = OpenMeteoService(
+                base_url="https://weather.test/forecast", client=client
+            )
+            with pytest.raises(WeatherServiceError):
+                await service.get_hourly_forecast(59.32512, 18.07109, 3)
+
+    caplog.set_level("ERROR", logger="backend.services.open_meteo")
+    asyncio.run(run_test())
+
+    log_text = caplog.text
+    assert "status_code=503" in log_text
+    assert "https://weather.test/forecast" in log_text
+    assert "latitude=59.32512" in log_text
+    assert "longitude=18.07109" in log_text
+    assert "forecast_days=3" in log_text
+    assert "response_body=upstream unavailable" in log_text
+
+
+def test_open_meteo_logs_request_and_json_errors(caplog) -> None:
+    def connection_error(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("DNS lookup failed", request=request)
+
+    def invalid_json(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="not-json")
+
+    async def run_test() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(connection_error)
+        ) as client:
+            service = OpenMeteoService(
+                base_url="https://weather.test/connect", client=client
+            )
+            with pytest.raises(WeatherServiceError):
+                await service.get_hourly_forecast(59.32512, 18.07109, 1)
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(invalid_json)
+        ) as client:
+            service = OpenMeteoService(
+                base_url="https://weather.test/json", client=client
+            )
+            with pytest.raises(WeatherServiceError):
+                await service.get_hourly_forecast(59.32512, 18.07109, 2)
+
+    caplog.set_level("ERROR", logger="backend.services.open_meteo")
+    asyncio.run(run_test())
+
+    log_text = caplog.text
+    assert "exception_type=ConnectError" in log_text
+    assert "exception_message=DNS lookup failed" in log_text
+    assert "https://weather.test/connect" in log_text
+    assert "JSON parsing error" in log_text
+    assert "https://weather.test/json" in log_text
+    assert "response_body=not-json" in log_text

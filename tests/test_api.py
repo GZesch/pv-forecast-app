@@ -34,6 +34,41 @@ def test_weather_forecast_route_is_registered() -> None:
     assert "GET" in matching_routes[0].methods
 
 
+def test_debug_open_meteo_endpoint(monkeypatch) -> None:
+    captured: dict = {}
+
+    async def fake_forecast(**kwargs) -> list[WeatherForecastRow]:
+        captured.update(kwargs)
+        return [
+            WeatherForecastRow(
+                timestamp="2026-06-21T00:00:00Z",
+                temperature_2m=15.0,
+                cloud_cover=20.0,
+                direct_radiation=0.0,
+                diffuse_radiation=0.0,
+                wind_speed_10m=2.0,
+            )
+        ]
+
+    monkeypatch.setattr(
+        "backend.main.open_meteo_service.get_hourly_forecast", fake_forecast
+    )
+    with TestClient(app) as client:
+        response = client.get(
+            "/debug/open-meteo?lat=59.32512&lon=18.07109"
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert response.json()["hourly_rows"] == 1
+    assert captured == {
+        "latitude": 59.32512,
+        "longitude": 18.07109,
+        "forecast_days": 1,
+        "force_refresh": True,
+    }
+
+
 def test_delete_installation_route_is_registered() -> None:
     matching_routes = [
         route

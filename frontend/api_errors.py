@@ -5,6 +5,10 @@ WEATHER_BUSY_MESSAGE = (
     "Der Wetterdienst ist kurzzeitig ausgelastet. "
     "Bitte in einigen Minuten erneut versuchen."
 )
+WEATHER_UNAVAILABLE_MESSAGE = (
+    "Der Wetterdienst ist derzeit nicht erreichbar. "
+    "Bitte später erneut versuchen."
+)
 
 
 def response_error_message(response: Any, fallback: str) -> str:
@@ -19,5 +23,7 @@ def response_error_message(response: Any, fallback: str) -> str:
         if "429" in normalized_detail or "http" in normalized_detail:
             return WEATHER_BUSY_MESSAGE
 
-    return detail if isinstance(detail, str) and detail else fallback
+    if response.status_code == 502:
+        return WEATHER_UNAVAILABLE_MESSAGE
 
+    return detail if isinstance(detail, str) and detail else fallback
