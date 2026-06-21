@@ -7,7 +7,13 @@ from uuid import UUID, uuid4
 
 import duckdb
 
-from backend.models import InstallationCreate, PlantCreate, PVForecastResponse
+from backend.models import (
+    InstallationCreate,
+    InstallationUpdate,
+    PlantCreate,
+    PlantUpdate,
+    PVForecastResponse,
+)
 
 
 class ForecastPersistenceError(RuntimeError):
@@ -235,6 +241,45 @@ def get_installation(
     return _installation_from_row(row) if row else None
 
 
+def update_installation(
+    installation_id: UUID,
+    session_id: UUID,
+    data: InstallationUpdate,
+    latitude: float,
+    longitude: float,
+) -> dict[str, Any] | None:
+    """Update an owned installation and return its current representation."""
+    with duckdb.connect(str(get_database_path())) as connection:
+        updated = connection.execute(
+            """
+            UPDATE installations
+            SET
+                name = ?,
+                location_label = ?,
+                latitude = ?,
+                longitude = ?,
+                peak_power_kwp = ?,
+                azimuth = ?,
+                tilt = ?
+            WHERE id = ? AND session_id = ?
+            RETURNING id
+            """,
+            [
+                data.name.strip(),
+                data.location.strip(),
+                latitude,
+                longitude,
+                data.peak_power_kwp,
+                data.azimuth,
+                data.tilt,
+                installation_id,
+                session_id,
+            ],
+        ).fetchone()
+
+    return get_installation(installation_id, session_id) if updated else None
+
+
 def delete_installation(installation_id: UUID, session_id: UUID) -> bool:
     """Delete an installation and report whether it existed."""
     with duckdb.connect(str(get_database_path())) as connection:
@@ -441,6 +486,25 @@ def get_plant(plant_id: UUID, session_id: UUID) -> dict[str, Any] | None:
             WHERE id = ? AND session_id = ?
             """,
             [plant_id, str(session_id)],
+        ).fetchone()
+    return _plant_from_row(row) if row else None
+
+
+def update_plant(
+    plant_id: UUID, session_id: UUID, data: PlantUpdate
+) -> dict[str, Any] | None:
+    location_label = (
+        data.location_label.strip() if data.location_label else None
+    ) or None
+    with duckdb.connect(str(get_database_path())) as connection:
+        row = connection.execute(
+            f"""
+            UPDATE plants
+            SET name = ?, location_label = ?
+            WHERE id = ? AND session_id = ?
+            RETURNING {PLANT_COLUMNS}
+            """,
+            [data.name, location_label, plant_id, str(session_id)],
         ).fetchone()
     return _plant_from_row(row) if row else None
 

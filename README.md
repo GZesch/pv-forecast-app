@@ -36,6 +36,7 @@ Die folgenden Endpunkte verwalten PV-Anlagen dauerhaft in DuckDB:
 - `POST /installations` – neue Anlage anlegen
 - `GET /installations` – alle Anlagen auflisten
 - `GET /installations/{id}` – eine Anlage anhand ihrer UUID abrufen
+- `PUT /installations/{id}` – eine Anlage bearbeiten und bei geändertem Ort neu geocodieren
 - `DELETE /installations/{id}` – eine Anlage löschen
 
 Alle Anlagen-Endpunkte erwarten den Header `X-Session-ID` mit einer UUID. Das

@@ -21,6 +21,8 @@ from backend.database import (
     list_plants,
     remove_installation_from_plant,
     save_forecast_run,
+    update_installation,
+    update_plant,
 )
 from backend.geocoding import (
     GeocodingServiceError,
@@ -31,8 +33,10 @@ from backend.models import (
     ForecastHistoryRun,
     Installation,
     InstallationCreate,
+    InstallationUpdate,
     Plant,
     PlantCreate,
+    PlantUpdate,
     PlantForecastComponent,
     PlantPVForecastResponse,
     PVForecastResponse,
@@ -156,6 +160,62 @@ async def get_installation_by_id(
             detail=INSTALLATION_NOT_FOUND,
         )
     return Installation.model_validate(installation)
+
+
+@app.put(
+    "/installations/{installation_id}",
+    response_model=Installation,
+    tags=["installations"],
+)
+async def update_installation_by_id(
+    installation_id: UUID,
+    data: InstallationUpdate,
+    session_id: SessionId,
+) -> Installation:
+    installation = get_installation(installation_id, session_id)
+    if installation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=INSTALLATION_NOT_FOUND,
+        )
+
+    location = data.location.strip()
+    current_location = (installation.get("location_label") or "").strip()
+    if location.casefold() != current_location.casefold():
+        try:
+            coordinates = await geocode_location(location)
+        except LocationNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+        except GeocodingServiceError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(exc),
+            ) from exc
+        latitude = coordinates.latitude
+        longitude = coordinates.longitude
+    elif data.latitude is not None and data.longitude is not None:
+        latitude = data.latitude
+        longitude = data.longitude
+    else:
+        latitude = installation["latitude"]
+        longitude = installation["longitude"]
+
+    updated = update_installation(
+        installation_id,
+        session_id,
+        data,
+        latitude,
+        longitude,
+    )
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=INSTALLATION_NOT_FOUND,
+        )
+    return Installation.model_validate(updated)
 
 
 @app.delete(
@@ -327,6 +387,19 @@ async def get_plants(session_id: SessionId) -> list[Plant]:
 @app.get("/plants/{plant_id}", response_model=Plant, tags=["plants"])
 async def get_plant_by_id(plant_id: UUID, session_id: SessionId) -> Plant:
     plant = get_plant(plant_id, session_id)
+    if plant is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Kraftwerk wurde nicht gefunden.",
+        )
+    return Plant.model_validate(plant)
+
+
+@app.put("/plants/{plant_id}", response_model=Plant, tags=["plants"])
+async def update_plant_by_id(
+    plant_id: UUID, data: PlantUpdate, session_id: SessionId
+) -> Plant:
+    plant = update_plant(plant_id, session_id, data)
     if plant is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

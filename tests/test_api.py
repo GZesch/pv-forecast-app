@@ -134,6 +134,110 @@ def test_unknown_installation_returns_404(tmp_path, monkeypatch) -> None:
     assert response.json() == {"detail": "PV-Anlage wurde nicht gefunden."}
 
 
+def test_update_installation_regeocodes_and_updates_all_values(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.duckdb"))
+
+    async def fake_geocode(location: str) -> Coordinates:
+        if location == "Uppsala":
+            return Coordinates(latitude=59.8586, longitude=17.6389)
+        return Coordinates(latitude=59.3293, longitude=18.0686)
+
+    monkeypatch.setattr("backend.main.geocode_location", fake_geocode)
+    create_payload = {
+        "name": "Dach Stockholm",
+        "location": "Stockholm",
+        "peak_power_kwp": 5.0,
+        "azimuth": 180.0,
+        "tilt": 30.0,
+    }
+    update_payload = {
+        "name": "Dach Uppsala",
+        "location": "Uppsala",
+        "peak_power_kwp": 8.5,
+        "azimuth": 135.0,
+        "tilt": 42.0,
+    }
+
+    with TestClient(app) as client:
+        installation = client.post(
+            "/installations", json=create_payload
+        ).json()
+        response = client.put(
+            f"/installations/{installation['id']}", json=update_payload
+        )
+        listed = client.get("/installations").json()[0]
+
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["name"] == "Dach Uppsala"
+    assert updated["location_label"] == "Uppsala"
+    assert updated["latitude"] == 59.8586
+    assert updated["longitude"] == 17.6389
+    assert updated["peak_power_kwp"] == 8.5
+    assert updated["azimuth"] == 135.0
+    assert updated["tilt"] == 42.0
+    assert listed == updated
+
+
+def test_update_unknown_installation_returns_404(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.duckdb"))
+    payload = {
+        "name": "Unbekannt",
+        "location": "Berlin",
+        "peak_power_kwp": 5.0,
+        "azimuth": 180.0,
+        "tilt": 30.0,
+    }
+
+    with TestClient(app) as client:
+        response = client.put(
+            "/installations/00000000-0000-0000-0000-000000000000",
+            json=payload,
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "PV-Anlage wurde nicht gefunden."}
+
+
+def test_update_installation_accepts_expert_coordinates_for_same_location(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.duckdb"))
+    geocode_calls = 0
+
+    async def fake_geocode(_: str) -> Coordinates:
+        nonlocal geocode_calls
+        geocode_calls += 1
+        return Coordinates(latitude=52.52, longitude=13.405)
+
+    monkeypatch.setattr("backend.main.geocode_location", fake_geocode)
+    payload = {
+        "name": "Dach",
+        "location": "Berlin",
+        "peak_power_kwp": 5.0,
+        "azimuth": 180.0,
+        "tilt": 30.0,
+    }
+
+    with TestClient(app) as client:
+        installation = client.post("/installations", json=payload).json()
+        response = client.put(
+            f"/installations/{installation['id']}",
+            json={
+                **payload,
+                "latitude": 52.5001,
+                "longitude": 13.4001,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["latitude"] == 52.5001
+    assert response.json()["longitude"] == 13.4001
+    assert geocode_calls == 1
+
+
 def test_original_stockholm_location_is_persisted_and_listed(
     tmp_path, monkeypatch
 ) -> None:
@@ -504,6 +608,16 @@ def test_installation_endpoints_require_session_header(tmp_path, monkeypatch) ->
             ),
             client.get("/installations"),
             client.get(f"/installations/{unknown_id}"),
+            client.put(
+                f"/installations/{unknown_id}",
+                json={
+                    "name": "Ohne Session",
+                    "location": "Berlin",
+                    "peak_power_kwp": 5.0,
+                    "azimuth": 180.0,
+                    "tilt": 30.0,
+                },
+            ),
             client.delete(f"/installations/{unknown_id}"),
             client.get(f"/installations/{unknown_id}/weather-forecast"),
             client.get(f"/installations/{unknown_id}/pv-forecast"),
@@ -554,6 +668,16 @@ def test_sessions_cannot_access_each_others_installations(
         assert visitor.get("/installations").json() == []
         protected_responses = [
             visitor.get(f"/installations/{installation['id']}"),
+            visitor.put(
+                f"/installations/{installation['id']}",
+                json={
+                    "name": "Fremd geändert",
+                    "location": "Hamburg",
+                    "peak_power_kwp": 10.0,
+                    "azimuth": 90.0,
+                    "tilt": 20.0,
+                },
+            ),
             visitor.delete(f"/installations/{installation['id']}"),
             visitor.get(
                 f"/installations/{installation['id']}/weather-forecast"
@@ -684,6 +808,41 @@ def test_plant_crud_and_installation_assignment(tmp_path, monkeypatch) -> None:
         assert client.get(f"/installations/{installation['id']}").json()[
             "plant_id"
         ] is None
+
+
+def test_update_plant_and_reject_unknown_or_foreign_id(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.duckdb"))
+
+    with TestClient(app) as owner:
+        plant = owner.post(
+            "/plants",
+            json={"name": "Alt", "location_label": "Berlin"},
+        ).json()
+        response = owner.put(
+            f"/plants/{plant['id']}",
+            json={"name": "Wohnhaus", "location_label": "Potsdam"},
+        )
+        unknown_response = owner.put(
+            "/plants/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            json={"name": "Unbekannt", "location_label": None},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Wohnhaus"
+    assert response.json()["location_label"] == "Potsdam"
+    assert unknown_response.status_code == 404
+
+    with TestClient(app, headers=OTHER_SESSION_HEADERS) as visitor:
+        foreign_response = visitor.put(
+            f"/plants/{plant['id']}",
+            json={"name": "Übernommen", "location_label": "Hamburg"},
+        )
+        assert foreign_response.status_code == 404
+
+    with TestClient(app) as owner:
+        unchanged = owner.get(f"/plants/{plant['id']}").json()
+        assert unchanged["name"] == "Wohnhaus"
+        assert unchanged["location_label"] == "Potsdam"
 
 
 def test_plant_forecast_sums_component_installations(tmp_path, monkeypatch) -> None:

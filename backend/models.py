@@ -1,7 +1,13 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 class InstallationCreate(BaseModel):
@@ -10,6 +16,34 @@ class InstallationCreate(BaseModel):
     peak_power_kwp: float = Field(gt=0)
     azimuth: float = Field(ge=0, le=360)
     tilt: float = Field(ge=0, le=90)
+
+    @field_validator("name", "location", mode="before")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        return value.strip() if isinstance(value, str) else value
+
+
+class InstallationUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    location: str = Field(min_length=1, max_length=500)
+    peak_power_kwp: float = Field(gt=0)
+    azimuth: float = Field(ge=0, le=360)
+    tilt: float = Field(ge=0, le=90)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+
+    @field_validator("name", "location", mode="before")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def validate_coordinate_pair(self) -> "InstallationUpdate":
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError(
+                "Breitengrad und Längengrad müssen gemeinsam angegeben werden."
+            )
+        return self
 
 
 class Installation(BaseModel):
@@ -70,6 +104,21 @@ class ForecastHistoryRun(BaseModel):
 class PlantCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     location_label: str | None = Field(default=None, max_length=500)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def strip_name(cls, value: str) -> str:
+        return value.strip() if isinstance(value, str) else value
+
+
+class PlantUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    location_label: str | None = Field(default=None, max_length=500)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def strip_name(cls, value: str) -> str:
+        return value.strip() if isinstance(value, str) else value
 
 
 class Plant(BaseModel):

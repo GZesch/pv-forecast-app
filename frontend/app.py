@@ -1,11 +1,13 @@
 import os
+from html import escape
 from uuid import uuid4
 
 import httpx
 import streamlit as st
 
 from api_errors import response_error_message
-from installation_display import location_columns
+from installation_display import format_installation_location, location_columns
+from plant_display import calculate_total_peak_power
 from time_display import (
     create_hourly_chart,
     format_german_date,
@@ -46,6 +48,17 @@ def api_post(
 def api_delete(path: str, *, timeout: float = REQUEST_TIMEOUT) -> httpx.Response:
     return httpx.delete(
         f"{API_BASE_URL}{path}", headers=api_headers(), timeout=timeout
+    )
+
+
+def api_put(
+    path: str, *, json: dict, timeout: float = REQUEST_TIMEOUT
+) -> httpx.Response:
+    return httpx.put(
+        f"{API_BASE_URL}{path}",
+        json=json,
+        headers=api_headers(),
+        timeout=timeout,
     )
 
 ORIENTATIONS = {
@@ -103,6 +116,12 @@ if not backend_available:
 deleted_name = st.session_state.pop("deleted_installation_name", None)
 if deleted_name:
     st.success(f"Anlage „{deleted_name}“ wurde gelöscht.")
+updated_name = st.session_state.pop("updated_installation_name", None)
+if updated_name:
+    st.success(f"Anlage „{updated_name}“ wurde aktualisiert.")
+updated_plant_name = st.session_state.pop("updated_plant_name", None)
+if updated_plant_name:
+    st.success(f"Kraftwerk „{updated_plant_name}“ wurde aktualisiert.")
 
 expert_mode = st.toggle(
     "Expertenmodus",
@@ -200,11 +219,12 @@ except (httpx.HTTPError, ValueError) as exc:
 
 
 @st.dialog("Anlage löschen")
-def confirm_installation_delete(installation: dict) -> None:
+def confirm_installation_delete(installation: dict, table_key: str) -> None:
     st.warning(f"Soll die Anlage „{installation['name']}“ wirklich gelöscht werden?")
     cancel_column, delete_column = st.columns(2)
     with cancel_column:
         if st.button("Abbrechen", use_container_width=True):
+            st.session_state.pop(table_key, None)
             st.rerun()
     with delete_column:
         if st.button("Endgültig löschen", type="primary", use_container_width=True):
@@ -236,69 +256,360 @@ def confirm_installation_delete(installation: dict) -> None:
             ):
                 st.session_state.pop(key, None)
             st.session_state["deleted_installation_name"] = installation["name"]
+            st.session_state.pop(table_key, None)
             st.rerun()
+
+
+@st.dialog("Anlage bearbeiten")
+def edit_installation_dialog(installation: dict, table_key: str) -> None:
+    installation_id = installation["id"]
+    name = st.text_input(
+        "Name",
+        value=installation["name"],
+        key=f"edit-name-{installation_id}",
+    )
+    location = st.text_input(
+        "Standort / Ort",
+        value=format_installation_location(installation),
+        key=f"edit-location-{installation_id}",
+        help="Bei einer Änderung wird der neue Standort erneut geocodiert.",
+    )
+    peak_power_kwp = st.number_input(
+        "Leistung (kWp)",
+        min_value=0.01,
+        value=float(installation["peak_power_kwp"]),
+        step=0.1,
+        key=f"edit-power-{installation_id}",
+    )
+    current_orientation = orientation_from_azimuth(installation["azimuth"])
+    orientation = st.selectbox(
+        "Ausrichtung",
+        options=list(ORIENTATIONS),
+        index=list(ORIENTATIONS).index(current_orientation),
+        key=f"edit-orientation-{installation_id}",
+    )
+    tilt = st.slider(
+        "Neigung (°)",
+        min_value=0,
+        max_value=90,
+        value=int(round(installation["tilt"])),
+        key=f"edit-tilt-{installation_id}",
+    )
+
+    azimuth = ORIENTATIONS[orientation]
+    latitude = None
+    longitude = None
+    if expert_mode:
+        st.markdown("**Expertenwerte**")
+        latitude_column, longitude_column = st.columns(2)
+        with latitude_column:
+            latitude = st.number_input(
+                "Breitengrad",
+                min_value=-90.0,
+                max_value=90.0,
+                value=float(installation["latitude"]),
+                format="%.6f",
+                key=f"edit-latitude-{installation_id}",
+            )
+        with longitude_column:
+            longitude = st.number_input(
+                "Längengrad",
+                min_value=-180.0,
+                max_value=180.0,
+                value=float(installation["longitude"]),
+                format="%.6f",
+                key=f"edit-longitude-{installation_id}",
+            )
+        override_azimuth = st.checkbox(
+            "Numerischen Azimut verwenden",
+            key=f"edit-override-azimuth-{installation_id}",
+        )
+        numeric_azimuth = st.number_input(
+            "Azimut in Grad",
+            min_value=0.0,
+            max_value=360.0,
+            value=float(installation["azimuth"]),
+            step=0.5,
+            disabled=not override_azimuth,
+            key=f"edit-azimuth-{installation_id}",
+        )
+        if override_azimuth:
+            azimuth = numeric_azimuth
+
+    cancel_column, save_column = st.columns(2)
+    with cancel_column:
+        if st.button("Abbrechen", key=f"cancel-edit-{installation_id}"):
+            st.session_state.pop(table_key, None)
+            st.rerun()
+    with save_column:
+        if st.button(
+            "Änderungen speichern",
+            type="primary",
+            key=f"save-edit-{installation_id}",
+        ):
+            if not name.strip() or not location.strip():
+                st.error("Name und Standort dürfen nicht leer sein.")
+                return
+            payload = {
+                "name": name.strip(),
+                "location": location.strip(),
+                "peak_power_kwp": peak_power_kwp,
+                "azimuth": azimuth,
+                "tilt": float(tilt),
+            }
+            if expert_mode:
+                payload["latitude"] = latitude
+                payload["longitude"] = longitude
+            try:
+                response = api_put(
+                    f"/installations/{installation_id}", json=payload
+                )
+                response.raise_for_status()
+                updated = response.json()
+            except httpx.HTTPStatusError as exc:
+                st.error(
+                    response_error_message(
+                        exc.response, "Die Anlage konnte nicht aktualisiert werden."
+                    )
+                )
+                return
+            except (httpx.RequestError, ValueError):
+                st.error("Das Backend ist beim Aktualisieren nicht erreichbar.")
+                return
+
+            st.session_state["updated_installation_name"] = updated["name"]
+            for key in (
+                "weather_forecast",
+                "weather_installation_id",
+                "pv_forecast",
+                "pv_daily_energy",
+                "pv_forecast_metrics",
+                "pv_forecast_components",
+                "pv_forecast_target_key",
+            ):
+                st.session_state.pop(key, None)
+            st.session_state.pop(table_key, None)
+            st.rerun()
+
+
+@st.fragment
+def render_installation_table(items: list[dict], show_expert_columns: bool) -> None:
+    """Render local table selections without rerunning forecast sections."""
+    table_rows = []
+    for installation in items:
+        displayed_location = location_columns(
+            installation, expert_mode=show_expert_columns
+        )
+        table_row = {
+            "Name": installation["name"],
+            "Ort": displayed_location["Ort"],
+            "Leistung": f"{installation['peak_power_kwp']:.2f} kWp",
+            "Ausrichtung": orientation_from_azimuth(installation["azimuth"]),
+            "Neigung": f"{installation['tilt']:.1f}°",
+            "Erstellt am": format_german_datetime(installation["created_at"]),
+        }
+        if show_expert_columns:
+            table_row.update(
+                {
+                    "Breitengrad": displayed_location["Breitengrad"],
+                    "Längengrad": displayed_location["Längengrad"],
+                    "Azimut": f"{installation['azimuth']:.1f}°",
+                }
+            )
+        table_rows.append(table_row)
+
+    mode = "expert" if show_expert_columns else "standard"
+    table_key = f"installation-table-scroll-{mode}"
+    columns = list(table_rows[0])
+    column_widths = {
+        column: max(
+            len(column),
+            *(len(str(row[column])) for row in table_rows),
+        )
+        + 1
+        for column in columns
+    }
+
+    st.html(
+        f"""
+        <style>
+        .st-key-{table_key} {{
+            overflow-x: auto;
+            padding-bottom: 0.25rem;
+        }}
+        .st-key-{table_key} [data-testid="stHorizontalBlock"] {{
+            flex-wrap: nowrap;
+            inline-size: max-content;
+            align-items: center;
+        }}
+        .st-key-{table_key} .installation-cell {{
+            box-sizing: content-box;
+            white-space: nowrap;
+            overflow: visible;
+            line-height: 1.75;
+        }}
+        .st-key-{table_key} .installation-header {{
+            font-weight: 600;
+        }}
+        .st-key-{table_key} button {{
+            padding: 0.15rem 0.4rem;
+            min-height: unset;
+        }}
+        </style>
+        """
+    )
+
+    def render_cell(value: object, column: str, *, header: bool = False) -> None:
+        header_class = " installation-header" if header else ""
+        st.html(
+            f'<div class="installation-cell{header_class}" '
+            f'style="inline-size:{column_widths[column]}ch">'
+            f"{escape(str(value))}</div>",
+            width="content",
+        )
+
+    selected: list[dict] = []
+    with st.container(key=table_key):
+        with st.container(horizontal=True, gap="small"):
+            for column in columns:
+                render_cell(column, column, header=True)
+            st.html('<div class="installation-header">✏️</div>', width="content")
+            st.html('<div class="installation-header">🗑️</div>', width="content")
+
+        for installation, table_row in zip(items, table_rows, strict=True):
+            with st.container(
+                horizontal=True,
+                vertical_alignment="center",
+                gap="small",
+            ):
+                for column in columns:
+                    render_cell(table_row[column], column)
+                if st.button(
+                    "✏️",
+                    key=f"edit-installation-{mode}-{installation['id']}",
+                    help=f"{installation['name']} bearbeiten",
+                ):
+                    edit_installation_dialog(installation, table_key)
+                delete_key = f"delete-installation-{mode}-{installation['id']}"
+                if st.checkbox(
+                    "Löschen",
+                    key=delete_key,
+                    help=f"{installation['name']} zum Löschen auswählen",
+                    label_visibility="collapsed",
+                ):
+                    selected.append(installation)
+
+    if selected:
+        st.warning(
+            f"Ausgewählte Anlagen löschen? ({len(selected)} ausgewählt)"
+        )
+        cancel_column, delete_column = st.columns(2)
+        with cancel_column:
+            if st.button("Abbrechen", key=f"cancel-delete-{mode}"):
+                for installation in items:
+                    st.session_state.pop(
+                        f"delete-installation-{mode}-{installation['id']}", None
+                    )
+                st.rerun(scope="fragment")
+        with delete_column:
+            if st.button(
+                "Ausgewählte löschen",
+                type="primary",
+                key=f"delete-selected-{mode}",
+            ):
+                try:
+                    for installation in selected:
+                        response = api_delete(f"/installations/{installation['id']}")
+                        response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    st.error(
+                        response_error_message(
+                            exc.response,
+                            "Die ausgewählten Anlagen konnten nicht gelöscht werden.",
+                        )
+                    )
+                    return
+                except httpx.RequestError:
+                    st.error("Das Backend ist beim Löschen nicht erreichbar.")
+                    return
+
+                for key in (
+                    "weather_forecast",
+                    "weather_installation_id",
+                    "pv_forecast",
+                    "pv_daily_energy",
+                    "pv_forecast_metrics",
+                    "pv_forecast_installation_id",
+                    "pv_forecast_components",
+                    "pv_forecast_target_key",
+                ):
+                    st.session_state.pop(key, None)
+                st.session_state["deleted_installation_name"] = ", ".join(
+                    installation["name"] for installation in selected
+                )
+                for installation in items:
+                    st.session_state.pop(
+                        f"delete-installation-{mode}-{installation['id']}", None
+                    )
+                st.rerun()
 
 
 with management_right:
     st.header("Vorhandene Anlagen")
     if installations:
-        standard_labels = [
-            "Name",
-            "Ort",
-            "Leistung",
-            "Ausrichtung",
-            "Neigung",
-            "Erstellt am",
-            "",
-        ]
-        standard_widths = [1.3, 1.3, 0.9, 1.1, 0.7, 1.4, 0.35]
-        if expert_mode:
-            labels = standard_labels[:-1] + [
-                "Breitengrad",
-                "Längengrad",
-                "Azimut",
-                "",
-            ]
-            widths = standard_widths[:-1] + [0.9, 0.9, 0.7, 0.35]
-        else:
-            labels = standard_labels
-            widths = standard_widths
-
-        headers = st.columns(widths)
-        for column, label in zip(headers, labels, strict=True):
-            column.markdown(f"**{label}**")
-
-        for installation in installations:
-            row = st.columns(widths)
-            displayed_location = location_columns(
-                installation, expert_mode=expert_mode
-            )
-            values = [
-                installation["name"],
-                displayed_location["Ort"],
-                f"{installation['peak_power_kwp']:.2f} kWp",
-                orientation_from_azimuth(installation["azimuth"]),
-                f"{installation['tilt']:.1f}°",
-                format_german_datetime(installation["created_at"]),
-            ]
-            if expert_mode:
-                values.extend(
-                    [
-                        displayed_location["Breitengrad"],
-                        displayed_location["Längengrad"],
-                        f"{installation['azimuth']:.1f}°",
-                    ]
-                )
-            for column, value in zip(row, values, strict=False):
-                column.write(value)
-            if row[-1].button(
-                "🗑️",
-                key=f"delete-{installation['id']}",
-                help=f"Anlage {installation['name']} löschen",
-            ):
-                confirm_installation_delete(installation)
+        render_installation_table(installations, expert_mode)
     else:
         st.info("Noch keine PV-Anlagen vorhanden.")
+
+
+@st.dialog("Kraftwerk bearbeiten")
+def edit_plant_dialog(plant: dict) -> None:
+    plant_id = plant["id"]
+    name = st.text_input(
+        "Name des Kraftwerks",
+        value=plant["name"],
+        key=f"edit-plant-name-{plant_id}",
+    )
+    location = st.text_input(
+        "Ort des Kraftwerks",
+        value=plant.get("location_label") or "",
+        key=f"edit-plant-location-{plant_id}",
+    )
+    cancel_column, save_column = st.columns(2)
+    with cancel_column:
+        if st.button("Abbrechen", key=f"cancel-edit-plant-{plant_id}"):
+            st.rerun()
+    with save_column:
+        if st.button(
+            "Änderungen speichern",
+            type="primary",
+            key=f"save-edit-plant-{plant_id}",
+        ):
+            if not name.strip():
+                st.error("Der Name des Kraftwerks darf nicht leer sein.")
+                return
+            try:
+                response = api_put(
+                    f"/plants/{plant_id}",
+                    json={
+                        "name": name.strip(),
+                        "location_label": location.strip() or None,
+                    },
+                )
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                st.error(
+                    response_error_message(
+                        exc.response, "Das Kraftwerk konnte nicht aktualisiert werden."
+                    )
+                )
+                return
+            except httpx.RequestError:
+                st.error("Das Backend ist beim Aktualisieren nicht erreichbar.")
+                return
+            st.session_state["updated_plant_name"] = name.strip()
+            st.rerun()
+
 
 st.divider()
 st.header("Kraftwerke")
@@ -346,14 +657,36 @@ except (httpx.HTTPError, ValueError) as exc:
 with plant_right:
     st.subheader("Vorhandene Kraftwerke")
     if plants:
+        header_name, header_location, header_power, header_edit, header_delete = st.columns(
+            [1.25, 1.1, 0.85, 0.42, 0.42], gap="small"
+        )
+        header_name.caption("Name")
+        header_location.caption("Ort")
+        header_power.caption("Gesamtleistung")
+        header_edit.caption("Edit")
+        header_delete.caption("Löschen")
         for plant in plants:
-            name_column, location_column, action_column = st.columns([1.5, 1.2, 0.35])
+            total_peak_power = calculate_total_peak_power(
+                plant["id"], installations
+            )
+            name_column, location_column, power_column, edit_column, delete_column = st.columns(
+                [1.25, 1.1, 0.85, 0.42, 0.42], gap="small"
+            )
             name_column.write(plant["name"])
             location_column.write(plant.get("location_label") or "Ort nicht angegeben")
-            if action_column.button(
+            power_column.write(f"{total_peak_power:.2f} kWp")
+            if edit_column.button(
+                "✏️",
+                key=f"edit-plant-{plant['id']}",
+                help=f"Kraftwerk {plant['name']} bearbeiten",
+                use_container_width=True,
+            ):
+                edit_plant_dialog(plant)
+            if delete_column.button(
                 "🗑️",
                 key=f"delete-plant-{plant['id']}",
                 help=f"Kraftwerk {plant['name']} löschen",
+                use_container_width=True,
             ):
                 try:
                     response = api_delete(f"/plants/{plant['id']}")
@@ -389,20 +722,24 @@ if plants and installations:
         key="assignment_plant_id",
     )
     assignment_values: dict[str, bool] = {}
-    for installation in installations:
-        assigned_plant_id = installation.get("plant_id")
-        label = installation["name"]
-        if assigned_plant_id and assigned_plant_id != assignment_plant_id:
-            other_plant = plants_by_id.get(assigned_plant_id)
-            if other_plant:
-                label += f" (aktuell: {other_plant['name']})"
-        assignment_values[installation["id"]] = st.checkbox(
-            label,
-            value=assigned_plant_id == assignment_plant_id,
-            key=f"assign-{assignment_plant_id}-{installation['id']}",
+    with st.form(f"plant-assignment-{assignment_plant_id}"):
+        for installation in installations:
+            assigned_plant_id = installation.get("plant_id")
+            label = installation["name"]
+            if assigned_plant_id and assigned_plant_id != assignment_plant_id:
+                other_plant = plants_by_id.get(assigned_plant_id)
+                if other_plant:
+                    label += f" (aktuell: {other_plant['name']})"
+            assignment_values[installation["id"]] = st.checkbox(
+                label,
+                value=assigned_plant_id == assignment_plant_id,
+                key=f"assign-{assignment_plant_id}-{installation['id']}",
+            )
+        save_assignment = st.form_submit_button(
+            "Zuordnung speichern", type="primary"
         )
 
-    if st.button("Zuordnung speichern", type="primary"):
+    if save_assignment:
         try:
             for installation in installations:
                 installation_id = installation["id"]
