@@ -41,14 +41,17 @@ class OpenMeteoService:
         cache_ttl_seconds: float | None = None,
         cache_max_entries: int = 512,
     ) -> None:
-        self.base_url = base_url or os.getenv(
-            "OPEN_METEO_URL", "https://api.open-meteo.com/v1/forecast"
+        self.base_url = (
+            base_url
+            or os.getenv("OPENMETEO_BASE_URL")
+            or os.getenv("OPEN_METEO_URL")
+            or "https://api.open-meteo.com/v1/forecast"
         )
         self._client = client
         self.cache_ttl_seconds = (
             cache_ttl_seconds
             if cache_ttl_seconds is not None
-            else float(os.getenv("OPEN_METEO_CACHE_TTL_SECONDS", "3600"))
+            else float(os.getenv("OPEN_METEO_CACHE_TTL_SECONDS", "21600"))
         )
         self._cache: dict[
             tuple[float, float, int],
@@ -56,6 +59,18 @@ class OpenMeteoService:
         ] = {}
         self.cache_max_entries = max(cache_max_entries, 1)
         self._cache_lock = asyncio.Lock()
+
+    async def is_forecast_cached(
+        self, latitude: float, longitude: float, forecast_days: int
+    ) -> bool:
+        """Return whether a non-expired forecast is already in memory."""
+        cache_key = (round(latitude, 4), round(longitude, 4), forecast_days)
+        async with self._cache_lock:
+            cached = self._cache.get(cache_key)
+            return bool(
+                cached
+                and time.monotonic() - cached[0] < self.cache_ttl_seconds
+            )
 
     async def get_hourly_forecast(
         self,

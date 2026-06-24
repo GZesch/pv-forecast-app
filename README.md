@@ -3,22 +3,23 @@
 Grundgerüst einer Web-Anwendung zur Vorhersage von Photovoltaik-Leistung mit
 FastAPI, Streamlit und DuckDB.
 
-## Start mit Docker
+## Start mit Docker Compose
 
 ```bash
-docker compose up --build
+cp .env.example .env
+docker compose up -d --build
 ```
 
-Das lokale Compose-Setup bindet `backend/` und `frontend/` direkt in die
-Container ein. Backend-Änderungen werden von Uvicorn automatisch neu geladen;
-damit laufen die Container nicht unbemerkt mit älteren API-Routen weiter.
+Das Compose-Setup entspricht dem Produktionsaufbau: Caddy ist der einzige
+öffentlich erreichbare Dienst. FastAPI und Streamlit sind nur im internen
+Docker-Netz erreichbar. Für lokale Entwicklung mit automatischem Reload können
+die weiter unten dokumentierten `uv`-Befehle verwendet werden.
 
 Danach sind die Dienste erreichbar:
 
-- Streamlit: <http://localhost:8501>
-- FastAPI: <http://localhost:8000>
-- API-Dokumentation: <http://localhost:8000/docs>
-- Health Check: <http://localhost:8000/health>
+- App: <http://localhost>
+- API-Dokumentation über Caddy: <http://localhost/api/docs>
+- Health Check über Caddy: <http://localhost/api/health>
 
 Beenden mit:
 
@@ -26,8 +27,10 @@ Beenden mit:
 docker compose down
 ```
 
-Die DuckDB-Datei liegt in einem Docker-Volume und bleibt nach dem Stoppen der
-Container erhalten. Mit `docker compose down -v` wird auch dieses Volume entfernt.
+Die DuckDB-Datei liegt auf dem Host unter `./database/pv_forecast.duckdb` und
+bleibt bei Container-Neubauten sowie `docker compose down` erhalten. Dieses
+Verzeichnis darf bei Deployments nicht gelöscht werden. `docker compose down -v`
+entfernt nur die Caddy-Volumes, nicht das gebundene Datenbankverzeichnis.
 
 ## Anlagen-API
 
@@ -102,11 +105,17 @@ Peak-Kennzahlen berechnet. Im Expertenmodus liefert das Frontend zusätzlich die
 Einzelkurven der enthaltenen Anlagen.
 
 Open-Meteo-Antworten werden anhand auf vier Dezimalstellen gerundeter
-Koordinaten und des Prognosezeitraums 60 Minuten im Arbeitsspeicher gecacht.
+Koordinaten und des Prognosezeitraums sechs Stunden im Arbeitsspeicher gecacht.
 Innerhalb einer Kraftwerksprognose wird jeder gerundete Standort höchstens
 einmal abgefragt. Eine Drosselung des Wetterdienstes wird ohne automatische
 Retry-Schleife als temporäre Auslastung verständlich an das Frontend
 weitergegeben; technische HTTP-Details werden nicht angezeigt.
+
+Erfolgreiche Prognosen für Anlagen und Kraftwerke werden mit Zieltyp, Ziel-ID,
+Stunden- und Tageswerten sowie der Quelle `fresh` oder `cached` persistiert.
+Erreicht Open-Meteo sein Tageslimit, liefert die API die neueste gespeicherte
+Prognose mit einem Warnhinweis zurück. Ohne gespeicherten Lauf wird eine
+verständliche HTTP-503-Meldung ausgegeben.
 
 Falls ein bereits laufendes Docker-Setup einen generischen 404-Fehler für diesen
 Endpunkt liefert, müssen Backend und Frontend mit dem aktuellen Quellstand neu
@@ -127,7 +136,155 @@ uv run streamlit run frontend/app.py
 uv run pytest
 ```
 
-## Deployment auf Render
+## Deployment auf Hetzner Cloud
+
+### 1. Server anlegen
+
+In der Hetzner Cloud Console einen Cloud Server mit Ubuntu 24.04 erstellen.
+IPv4 aktivieren und entweder einen SSH-Key hinterlegen oder ein sicheres
+Root-Passwort verwenden. Anschließend mit der angezeigten IPv4-Adresse verbinden:
+
+```bash
+ssh root@<SERVER-IP>
+```
+
+### 2. Docker und grundlegende Pakete installieren
+
+```bash
+apt update
+apt upgrade -y
+apt install -y ca-certificates curl git
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+apt update
+apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+docker run --rm hello-world
+docker compose version
+```
+
+Vor dem Aktivieren der Firewall immer zuerst SSH erlauben:
+
+```bash
+apt install -y ufw
+ufw allow OpenSSH
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw allow 443/udp
+ufw enable
+ufw status
+```
+
+### 3. Anwendung installieren
+
+```bash
+git clone <MEIN_REPO>
+cd <MEIN_REPO>
+cp .env.example .env
+nano .env
+mkdir -p database
+docker compose up -d --build
+docker compose ps
+docker compose logs -f
+```
+
+Für den ersten Start über die Server-IP bleibt in `.env`:
+
+```dotenv
+SITE_ADDRESS=:80
+```
+
+Die App ist anschließend unter `http://<SERVER-IP>` erreichbar. FastAPI und
+Streamlit veröffentlichen selbst keine Host-Ports. Caddy ist der einzige
+öffentliche Dienst und leitet die App an Streamlit weiter.
+
+Das Streamlit-Python-Backend ruft FastAPI serverseitig über
+`API_BASE_URL=http://backend:8000` auf. Der Browser benötigt die API deshalb
+nicht direkt. Für Diagnose und Dokumentation stellt Caddy trotzdem `/api/*`
+bereit und entfernt das Präfix vor der Weiterleitung:
+
+```bash
+curl http://<SERVER-IP>/api/health
+curl "http://<SERVER-IP>/api/debug/open-meteo?lat=59.32512&lon=18.07109"
+```
+
+### 4. DuckDB übernehmen und sichern
+
+Die produktive Datei liegt unter
+`./database/pv_forecast.duckdb` auf dem VPS. Eine bestehende Datenbank muss vor
+dem ersten Containerstart in dieses Verzeichnis kopiert werden. Der folgende
+`scp`-Befehl wird auf dem lokalen Rechner ausgeführt, nicht in der VPS-SSH-Sitzung:
+
+```bash
+scp database/pv_forecast.duckdb root@<SERVER-IP>:/opt/pv-forecast/database/
+```
+
+Dabei muss `/opt/pv-forecast` durch den tatsächlichen Zielpfad des geklonten
+Repositories ersetzt werden. Es darf nur eine Backend-Instanz gleichzeitig auf
+DuckDB schreiben. Für eine konsistente manuelle Sicherung das Backend kurz
+stoppen:
+
+```bash
+docker compose stop backend
+cp database/pv_forecast.duckdb "database/pv_forecast-$(date +%F-%H%M).duckdb.bak"
+docker compose start backend
+```
+
+Persistenztest nach dem Anlegen einer Testanlage:
+
+```bash
+ls -lh database/pv_forecast.duckdb
+docker compose down
+docker compose up -d
+ls -lh database/pv_forecast.duckdb
+```
+
+### 5. Domain und automatisches HTTPS aktivieren
+
+Für die Domain einen DNS-A-Record auf die Server-IPv4 setzen. Danach in `.env`
+die Adresse ohne Protokoll eintragen:
+
+```dotenv
+SITE_ADDRESS=forecast.example.de
+```
+
+Anschließend Caddy neu laden. Bei korrektem DNS und offenen Ports 80/443
+beschafft Caddy automatisch ein TLS-Zertifikat:
+
+```bash
+docker compose up -d
+docker compose logs -f caddy
+```
+
+### 6. Spätere Updates
+
+Das Datenbankverzeichnis wird von Git ignoriert und darf nicht gelöscht werden:
+
+```bash
+git pull
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail=100 backend frontend caddy
+```
+
+### Anfänger-Checkliste
+
+- Hetzner Cloud Server mit Ubuntu 24.04 und IPv4 erstellen.
+- SSH-Key oder sicheres Root-Passwort hinterlegen und per SSH verbinden.
+- Docker Engine und das Docker-Compose-Plugin installieren.
+- Vor `ufw enable` unbedingt `OpenSSH`, Port 80 und Port 443 erlauben.
+- Repository klonen und `.env.example` nach `.env` kopieren.
+- `NOMINATIM_USER_AGENT` in `.env` mit eigener Kontaktangabe anpassen.
+- Vorhandene DuckDB bei Bedarf vor dem ersten Start nach `database/` kopieren.
+- Mit `docker compose up -d --build` starten und Logs prüfen.
+- App über die IPv4-Adresse öffnen und `/api/health` testen.
+- Einen Open-Meteo-Test über `/api/debug/open-meteo` ausführen.
+- Testanlage anlegen und einen Container-Neustart als Persistenztest durchführen.
+- Später DNS setzen, `SITE_ADDRESS` auf die Domain ändern und HTTPS prüfen.
+- Regelmäßige DuckDB-Backups außerhalb des Repository-Verzeichnisses einplanen.
+
+## Deployment auf Render (bestehendes Legacy-Setup)
 
 Backend und Frontend werden als zwei getrennte Render-Webservices betrieben.
 Beide Services verwenden dasselbe Repository und `requirements.txt`. Die Datei

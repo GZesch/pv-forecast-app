@@ -1,0 +1,26 @@
+# Initialer Betrieb über die Server-IP: SITE_ADDRESS=:80
+# Später für HTTPS in .env setzen: SITE_ADDRESS=forecast.example.de
+{$SITE_ADDRESS} {
+    encode zstd gzip
+
+    # FastAPI Swagger unter /api/docs lädt sein Schema standardmäßig von
+    # /openapi.json und den OAuth-Redirect von /docs/oauth2-redirect.
+    handle /openapi.json {
+        reverse_proxy backend:8000
+    }
+    handle /docs/oauth2-redirect {
+        reverse_proxy backend:8000
+    }
+
+    # Optionaler direkter API-Zugang, z. B. /api/health oder /api/docs.
+    # handle_path entfernt das Präfix /api vor der Weiterleitung.
+    handle_path /api/* {
+        reverse_proxy backend:8000
+    }
+
+    # Der Browser kommuniziert regulär nur mit Streamlit. Streamlit selbst
+    # erreicht FastAPI intern über API_BASE_URL=http://backend:8000.
+    handle {
+        reverse_proxy frontend:8501
+    }
+}
