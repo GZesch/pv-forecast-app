@@ -16,6 +16,7 @@ GERMAN_WEEKDAYS = (
     "Samstag",
     "Sonntag",
 )
+ENERGY_KEYS = ("hourly_energy_kwh", "interval_energy_kwh", "energy_kwh")
 
 
 def parse_timestamp(value: str | datetime) -> datetime:
@@ -52,6 +53,82 @@ def today_in_display_timezone() -> date:
     return datetime.now(DISPLAY_TIMEZONE).date()
 
 
+def _positive_float(value: Any) -> float:
+    return max(float(value), 0.0)
+
+
+def _energy_from_row(row: dict[str, Any], interval_hours: float) -> float:
+    for key in ENERGY_KEYS:
+        if key in row and row[key] is not None:
+            return _positive_float(row[key])
+    return _positive_float(row["predicted_power_kw"]) * interval_hours
+
+
+def forecast_rows_to_hourly_energy(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Convert power forecast rows to interval energy rows.
+
+    The API currently returns hourly power values. The frontend checks the actual
+    timestamp spacing and converts power to energy via kW * interval hours.
+    """
+    if not rows:
+        return []
+
+    parsed_rows = sorted(
+        ((parse_timestamp(row["timestamp"]), row) for row in rows),
+        key=lambda item: item[0],
+    )
+    positive_deltas = sorted(
+        (later[0] - earlier[0]).total_seconds() / 3600
+        for earlier, later in zip(parsed_rows, parsed_rows[1:], strict=False)
+        if (later[0] - earlier[0]).total_seconds() > 0
+    )
+    if positive_deltas:
+        middle = len(positive_deltas) // 2
+        if len(positive_deltas) % 2:
+            interval_hours = positive_deltas[middle]
+        else:
+            interval_hours = (
+                positive_deltas[middle - 1] + positive_deltas[middle]
+            ) / 2
+    else:
+        interval_hours = 1.0
+
+    return [
+        {
+            "timestamp": row["timestamp"],
+            "local_timestamp": timestamp,
+            "chart_timestamp": timestamp.replace(tzinfo=None),
+            "interval_hours": interval_hours,
+            "interval_energy_kwh": round(_energy_from_row(row, interval_hours), 6),
+        }
+        for timestamp, row in parsed_rows
+    ]
+
+
+def sum_hourly_energy_series(
+    series: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Sum interval energy rows from multiple component series by timestamp."""
+    totals: dict[datetime, float] = defaultdict(float)
+    source_timestamp: dict[datetime, str] = {}
+    for item in series:
+        for row in forecast_rows_to_hourly_energy(item.get("hourly", [])):
+            chart_timestamp = row["chart_timestamp"]
+            totals[chart_timestamp] += row["interval_energy_kwh"]
+            source_timestamp[chart_timestamp] = row["timestamp"]
+
+    return [
+        {
+            "timestamp": source_timestamp[chart_timestamp],
+            "chart_timestamp": chart_timestamp,
+            "interval_energy_kwh": round(total, 6),
+        }
+        for chart_timestamp, total in sorted(totals.items())
+    ]
+
+
 def summarize_daily_power(
     rows: list[dict[str, Any]], start_date: date | None = None
 ) -> list[dict[str, Any]]:
@@ -60,8 +137,12 @@ def summarize_daily_power(
     for row in rows:
         timestamp = parse_timestamp(row["timestamp"])
         grouped[timestamp.date()].append(
-            (timestamp, max(float(row["predicted_power_kw"]), 0.0))
+            (timestamp, _positive_float(row["predicted_power_kw"]))
         )
+    energy_by_day: dict[date, float] = defaultdict(float)
+    for row in forecast_rows_to_hourly_energy(rows):
+        timestamp = row["local_timestamp"]
+        energy_by_day[timestamp.date()] += row["interval_energy_kwh"]
 
     first_date = start_date or today_in_display_timezone()
     summaries: list[dict[str, Any]] = []
@@ -83,13 +164,74 @@ def summarize_daily_power(
         summaries.append(
             {
                 "date": current_date,
-                "energy_kwh": round(sum(power for _, power in points), 3),
+                "energy_kwh": round(energy_by_day[current_date], 3),
                 "peak_power_kw": peak_power,
                 "peak_timestamp": peak_timestamp,
             }
         )
 
     return summaries
+
+
+def _tick_interval_hours(chart_times: list[datetime]) -> int:
+    if len(chart_times) < 2:
+        return 1
+    duration_hours = (
+        max(chart_times) - min(chart_times)
+    ).total_seconds() / 3600
+    if duration_hours <= 30:
+        return 1
+    if duration_hours <= 72:
+        return 3
+    return 6
+
+
+def _apply_time_axis(
+    figure: go.Figure,
+    chart_times: list[datetime],
+    *,
+    tick_interval_hours: int | None = None,
+) -> None:
+    if not chart_times:
+        return
+
+    interval = tick_interval_hours or _tick_interval_hours(chart_times)
+    tick_values = [
+        chart_time
+        for chart_time in chart_times
+        if chart_time.minute == 0 and chart_time.hour % interval == 0
+    ]
+    figure.update_xaxes(
+        tickmode="array",
+        tickvals=tick_values,
+        ticktext=[value.strftime("%H:%M") for value in tick_values],
+        tickangle=0,
+        ticks="outside",
+        showgrid=True,
+        gridcolor="rgba(120, 120, 120, 0.16)",
+        gridwidth=0.6,
+        title=None,
+        tickfont={"size": 13},
+    )
+
+    times_by_day: dict[date, list[datetime]] = defaultdict(list)
+    for chart_time in chart_times:
+        times_by_day[chart_time.date()].append(chart_time)
+
+    for day, day_times in sorted(times_by_day.items()):
+        first, last = min(day_times), max(day_times)
+        center = first + (last - first) / 2
+        figure.add_annotation(
+            x=center,
+            y=-0.22,
+            xref="x",
+            yref="paper",
+            text=format_german_date(day),
+            showarrow=False,
+            xanchor="center",
+            yanchor="top",
+            font={"size": 13, "color": "#4b5563"},
+        )
 
 
 def create_hourly_chart(
@@ -148,38 +290,7 @@ def create_hourly_chart(
             )
         )
 
-    tick_values = [
-        chart_time
-        for chart_time in chart_times
-        if chart_time.minute == 0 and chart_time.hour % 3 == 0
-    ]
-    figure.update_xaxes(
-        tickmode="array",
-        tickvals=tick_values,
-        ticktext=[value.strftime("%H:%M") for value in tick_values],
-        tickangle=0,
-        ticks="outside",
-        showgrid=True,
-        title=None,
-    )
-
-    times_by_day: dict[date, list[datetime]] = defaultdict(list)
-    for chart_time in chart_times:
-        times_by_day[chart_time.date()].append(chart_time)
-
-    for day, day_times in sorted(times_by_day.items()):
-        first, last = min(day_times), max(day_times)
-        center = first + (last - first) / 2
-        figure.add_annotation(
-            x=center,
-            y=-0.2,
-            xref="x",
-            yref="paper",
-            text=format_german_date(day),
-            showarrow=False,
-            xanchor="center",
-            yanchor="top",
-        )
+    _apply_time_axis(figure, chart_times, tick_interval_hours=3)
 
     figure.update_layout(
         height=430,
@@ -187,5 +298,118 @@ def create_hourly_chart(
         hovermode="x unified",
         showlegend=bool(additional_series),
         yaxis_title=y_axis_title,
+        font={"size": 13},
+        legend={"font": {"size": 13}},
+        hoverlabel={"font_size": 14},
+    )
+    figure.update_yaxes(
+        gridcolor="rgba(120, 120, 120, 0.16)",
+        gridwidth=0.6,
+        title={"font": {"size": 16}},
+        tickfont={"size": 13},
+        zerolinecolor="rgba(120, 120, 120, 0.25)",
+    )
+    return figure
+
+
+def create_hourly_energy_chart(
+    rows: list[dict[str, Any]],
+    *,
+    trace_name: str = "Ertrag pro Stunde",
+    component_series: list[dict[str, Any]] | None = None,
+) -> go.Figure:
+    """Create the main PV chart as interval energy bars."""
+    components = component_series or []
+    if components:
+        energy_rows = sum_hourly_energy_series(components)
+    else:
+        energy_rows = forecast_rows_to_hourly_energy(rows)
+
+    chart_times = [row["chart_timestamp"] for row in energy_rows]
+    total_by_time = {
+        row["chart_timestamp"]: row["interval_energy_kwh"] for row in energy_rows
+    }
+    figure = go.Figure()
+
+    if components:
+        for component in components:
+            component_name = str(component.get("name", "Einzelanlage"))
+            component_rows = forecast_rows_to_hourly_energy(component.get("hourly", []))
+            figure.add_trace(
+                go.Bar(
+                    x=[row["chart_timestamp"] for row in component_rows],
+                    y=[row["interval_energy_kwh"] for row in component_rows],
+                    name=component_name,
+                    customdata=[
+                        [
+                            format_german_datetime(row["timestamp"]),
+                            total_by_time.get(row["chart_timestamp"], 0.0),
+                        ]
+                        for row in component_rows
+                    ],
+                    hovertemplate=(
+                        "%{customdata[0]}<br>"
+                        + component_name
+                        + ": %{y:.2f} kWh<br>"
+                        "Gesamt: %{customdata[1]:.2f} kWh<extra></extra>"
+                    ),
+                    marker_line_width=0,
+                    opacity=0.86,
+                )
+            )
+    else:
+        figure.add_trace(
+            go.Bar(
+                x=chart_times,
+                y=[row["interval_energy_kwh"] for row in energy_rows],
+                name=trace_name,
+                customdata=[
+                    format_german_datetime(row["timestamp"]) for row in energy_rows
+                ],
+                hovertemplate=(
+                    "%{customdata}<br>"
+                    "Ertrag: %{y:.2f} kWh<extra></extra>"
+                ),
+                marker_color="#f59e0b",
+                marker_line_width=0,
+                opacity=0.9,
+            )
+        )
+
+    _apply_time_axis(figure, chart_times)
+    figure.update_layout(
+        title={
+            "text": "PV-Ertrag pro Stunde",
+            "font": {"size": 22},
+            "x": 0.01,
+            "xanchor": "left",
+        },
+        barmode="stack",
+        bargap=0.12,
+        height=480,
+        margin={"l": 24, "r": 20, "t": 58, "b": 112},
+        hovermode="x unified",
+        showlegend=bool(components),
+        yaxis_title="Ertrag [kWh]",
+        font={"size": 14},
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "right",
+            "x": 1,
+            "font": {"size": 13},
+            "bgcolor": "rgba(255,255,255,0.65)",
+        },
+        hoverlabel={"font_size": 14},
+        plot_bgcolor="white",
+    )
+    figure.update_yaxes(
+        gridcolor="rgba(120, 120, 120, 0.16)",
+        gridwidth=0.6,
+        title={"font": {"size": 17}},
+        tickfont={"size": 14},
+        zerolinecolor="rgba(120, 120, 120, 0.25)",
+        rangemode="tozero",
     )
     return figure

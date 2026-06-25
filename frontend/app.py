@@ -9,6 +9,7 @@ from forecast_response import forecast_warning
 from installation_display import format_installation_location, location_columns
 from plant_display import calculate_total_peak_power
 from time_display import (
+    create_hourly_energy_chart,
     create_hourly_chart,
     format_german_date,
     format_german_datetime,
@@ -915,23 +916,17 @@ if forecast_is_selected:
                     peak_time.strftime("%H:%M") if peak_time is not None else "—",
                 )
 
-    st.subheader(
-        "Summierte PV-Leistung"
-        if forecast_target_type == "Kraftwerk"
-        else "Prognostizierte PV-Leistung"
-    )
+    st.subheader("PV-Ertrag pro Stunde")
     component_series = (
         st.session_state.get("pv_forecast_components", [])
-        if expert_mode and forecast_target_type == "Kraftwerk"
+        if forecast_target_type == "Kraftwerk"
         else []
     )
     st.plotly_chart(
-        create_hourly_chart(
+        create_hourly_energy_chart(
             pv_forecast,
-            value_key="predicted_power_kw",
-            trace_name="Gesamtleistung" if forecast_target_type == "Kraftwerk" else "PV-Leistung",
-            y_axis_title="Leistung (kW)",
-            additional_series=component_series,
+            trace_name="Gesamtertrag" if forecast_target_type == "Kraftwerk" else "Ertrag pro Stunde",
+            component_series=component_series,
         ),
         use_container_width=True,
         config={"displayModeBar": False},
