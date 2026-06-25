@@ -515,6 +515,7 @@ def create_hourly_energy_chart(
         gridwidth=0.6,
         title={"font": {"size": 1 if compact else 18}},
         tickfont={"size": 11 if compact else 15},
+        ticklabelposition="inside" if compact else "outside",
         zerolinecolor="rgba(120, 120, 120, 0.25)",
         rangemode="tozero",
     )

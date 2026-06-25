@@ -24,7 +24,6 @@ from session_identity import (
 from time_display import (
     FORECAST_VIEW_DAYS,
     create_hourly_energy_chart,
-    create_hourly_chart,
     filter_component_series_by_days,
     filter_forecast_rows_by_days,
     format_german_date,
@@ -1131,57 +1130,6 @@ if expert_mode:
             else:
                 st.info("Im aktuellen Payload sind keine plottbaren Wetterdaten vorhanden.")
         elif st.session_state.get("weather_details_error"):
-            st.warning(st.session_state["weather_details_error"])
-
-        if False:
-            weather_table = [
-                {
-                    "Zeitpunkt": format_german_datetime(row["timestamp"]),
-                    "Temperatur (°C)": row["temperature_2m"],
-                    "Bewölkung (%)": row["cloud_cover"],
-                    "Direktstrahlung (W/m²)": row["direct_radiation"],
-                    "Diffusstrahlung (W/m²)": row["diffuse_radiation"],
-                    "Wind 10 m (km/h)": row["wind_speed_10m"],
-                }
-                for row in weather_forecast
-            ]
-            st.markdown("#### Wettertabelle")
-            st.dataframe(weather_table, use_container_width=True, hide_index=True)
-            st.markdown("#### Wetterdaten / Strahlungsdaten")
-            weather_variables = available_weather_variables(weather_forecast)
-            if weather_variables:
-                selected_weather_key = st.selectbox(
-                    "Variable auswÃ¤hlen",
-                    options=list(weather_variables),
-                    format_func=lambda key: weather_variables[key][0],
-                )
-                weather_label, weather_axis_title = weather_variables[
-                    selected_weather_key
-                ]
-                st.plotly_chart(
-                    create_hourly_chart(
-                        weather_forecast,
-                        value_key=selected_weather_key,
-                        trace_name=weather_label,
-                        y_axis_title=weather_axis_title,
-                    ),
-                    use_container_width=True,
-                    config={"displayModeBar": False},
-                )
-            else:
-                st.info("Im aktuellen Payload sind keine plottbaren Wetterdaten vorhanden.")
-            st.markdown("#### Direktstrahlung")
-            st.plotly_chart(
-                create_hourly_chart(
-                    weather_forecast,
-                    value_key="direct_radiation",
-                    trace_name="Direktstrahlung",
-                    y_axis_title="Direktstrahlung (W/m²)",
-                ),
-                use_container_width=True,
-                config={"displayModeBar": False},
-            )
-        elif forecast_target_type == "Einzelanlage" and st.session_state.get("weather_details_error"):
             st.warning(st.session_state["weather_details_error"])
 
         if forecast_is_selected:

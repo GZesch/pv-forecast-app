@@ -146,6 +146,8 @@ def test_weather_chart_reuses_compact_seven_day_noon_labels_and_date_annotations
     assert all(annotation.text.endswith(".") for annotation in figure.layout.annotations)
     assert figure.layout.yaxis.title.text == ""
     assert figure.layout.yaxis2.title.text == ""
+    assert figure.layout.yaxis.ticklabelposition == "inside"
+    assert figure.layout.yaxis2.ticklabelposition == "inside"
     assert figure.layout.margin.l < 12
 
 

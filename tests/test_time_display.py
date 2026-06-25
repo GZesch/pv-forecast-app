@@ -374,6 +374,7 @@ def test_compact_seven_day_chart_uses_noon_time_labels_and_short_day_annotations
     assert all(annotation.text.endswith(".") for annotation in figure.layout.annotations)
     assert all("2026" not in annotation.text for annotation in figure.layout.annotations)
     assert figure.layout.yaxis.title.text == ""
+    assert figure.layout.yaxis.ticklabelposition == "inside"
     assert figure.layout.margin.l < 12
 
 
