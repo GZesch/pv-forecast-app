@@ -160,6 +160,9 @@ def test_tick_interval_matches_selected_view_days() -> None:
     assert tick_interval_for_view_days(1) == 1
     assert tick_interval_for_view_days(3) == 3
     assert tick_interval_for_view_days(7) == 6
+    assert tick_interval_for_view_days(1, compact=True) == 3
+    assert tick_interval_for_view_days(3, compact=True) == 6
+    assert tick_interval_for_view_days(7, compact=True) == 12
 
 
 def test_hourly_energy_chart_uses_single_bar_trace_for_installation() -> None:
@@ -288,6 +291,30 @@ def test_hourly_energy_chart_uses_explicit_tick_interval() -> None:
     assert len(one_day.layout.xaxis.ticktext) > len(weekly.layout.xaxis.ticktext)
     assert "01:00" in list(one_day.layout.xaxis.ticktext)
     assert "01:00" not in list(weekly.layout.xaxis.ticktext)
+
+
+def test_hourly_energy_chart_compact_mode_reduces_labels_and_day_annotations() -> None:
+    first_utc = datetime(2026, 6, 26, 0, tzinfo=timezone.utc)
+    rows = [
+        {
+            "timestamp": (first_utc + timedelta(hours=hour)).isoformat(),
+            "predicted_power_kw": 1.0,
+        }
+        for hour in range(24)
+    ]
+
+    desktop = create_hourly_energy_chart(rows, tick_interval_hours=1)
+    compact = create_hourly_energy_chart(
+        rows,
+        tick_interval_hours=tick_interval_for_view_days(1, compact=True),
+        compact=True,
+        view_days=1,
+    )
+
+    assert len(desktop.layout.xaxis.ticktext) > len(compact.layout.xaxis.ticktext)
+    assert len(desktop.layout.annotations) > 0
+    assert len(compact.layout.annotations) == 0
+    assert compact.layout.margin.b < desktop.layout.margin.b
 
 
 def test_hourly_chart_can_add_component_curves() -> None:

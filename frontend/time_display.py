@@ -165,7 +165,13 @@ def filter_component_series_by_days(
     ]
 
 
-def tick_interval_for_view_days(days: int) -> int:
+def tick_interval_for_view_days(days: int, *, compact: bool = False) -> int:
+    if compact:
+        if days <= 1:
+            return 3
+        if days <= 3:
+            return 6
+        return 12
     if days <= 1:
         return 1
     if days <= 3:
@@ -249,6 +255,8 @@ def _apply_time_axis(
     chart_times: list[datetime],
     *,
     tick_interval_hours: int | None = None,
+    compact: bool = False,
+    view_days: int | None = None,
 ) -> None:
     if not chart_times:
         return
@@ -259,18 +267,28 @@ def _apply_time_axis(
         for chart_time in chart_times
         if chart_time.minute == 0 and chart_time.hour % interval == 0
     ]
+    if compact and (view_days or 0) >= 7:
+        tick_text = [value.strftime("%d.%m") for value in tick_values]
+    elif compact and (view_days or 0) >= 3:
+        tick_text = [value.strftime("%d.%m %H:%M") for value in tick_values]
+    else:
+        tick_text = [value.strftime("%H:%M") for value in tick_values]
+
     figure.update_xaxes(
         tickmode="array",
         tickvals=tick_values,
-        ticktext=[value.strftime("%H:%M") for value in tick_values],
+        ticktext=tick_text,
         tickangle=0,
         ticks="outside",
         showgrid=True,
         gridcolor="rgba(120, 120, 120, 0.16)",
         gridwidth=0.6,
         title=None,
-        tickfont={"size": 14},
+        tickfont={"size": 12 if compact else 14},
     )
+
+    if compact:
+        return
 
     times_by_day: dict[date, list[datetime]] = defaultdict(list)
     for chart_time in chart_times:
@@ -377,6 +395,8 @@ def create_hourly_energy_chart(
     component_series: list[dict[str, Any]] | None = None,
     stack_components: bool = False,
     tick_interval_hours: int | None = None,
+    compact: bool = False,
+    view_days: int | None = None,
 ) -> go.Figure:
     """Create the main PV chart as interval energy bars."""
     components = sort_component_series_by_energy(component_series or [])
@@ -436,36 +456,46 @@ def create_hourly_energy_chart(
             )
         )
 
-    _apply_time_axis(figure, chart_times, tick_interval_hours=tick_interval_hours)
+    _apply_time_axis(
+        figure,
+        chart_times,
+        tick_interval_hours=tick_interval_hours,
+        compact=compact,
+        view_days=view_days,
+    )
     figure.update_layout(
         title={
             "text": "",
         },
         barmode="stack",
         bargap=0.12,
-        height=480,
-        margin={"l": 44, "r": 24, "t": 18, "b": 116},
+        height=420 if compact else 480,
+        margin=(
+            {"l": 32, "r": 16, "t": 10, "b": 52}
+            if compact
+            else {"l": 44, "r": 24, "t": 18, "b": 116}
+        ),
         hovermode="x unified",
         showlegend=bool(stack_components and components),
         yaxis_title="Ertrag [kWh]",
-        font={"size": 15},
+        font={"size": 13 if compact else 15},
         legend={
             "orientation": "h",
             "yanchor": "bottom",
             "y": 1.02,
             "xanchor": "right",
             "x": 1,
-            "font": {"size": 14},
+            "font": {"size": 12 if compact else 14},
             "bgcolor": "rgba(255,255,255,0.65)",
         },
-        hoverlabel={"font_size": 14},
+        hoverlabel={"font_size": 13 if compact else 14},
         plot_bgcolor="white",
     )
     figure.update_yaxes(
         gridcolor="rgba(120, 120, 120, 0.16)",
         gridwidth=0.6,
-        title={"font": {"size": 18}},
-        tickfont={"size": 15},
+        title={"font": {"size": 16 if compact else 18}},
+        tickfont={"size": 13 if compact else 15},
         zerolinecolor="rgba(120, 120, 120, 0.25)",
         rangemode="tozero",
     )

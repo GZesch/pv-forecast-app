@@ -33,7 +33,13 @@ from time_display import (
     today_in_display_timezone,
     tick_interval_for_view_days,
 )
-from weather_display import available_weather_variables
+from weather_display import (
+    available_weather_variables,
+    create_weather_chart,
+    default_weather_source_installation_id,
+    default_weather_variable_selection,
+    installations_share_same_location,
+)
 
 st.set_page_config(page_title="PV Forecast", page_icon="☀️", layout="wide")
 
@@ -966,6 +972,11 @@ if forecast_is_selected:
         index=list(FORECAST_VIEW_DAYS).index("7 Tage"),
         horizontal=True,
     )
+    compact_chart = st.checkbox(
+        "Kompakte mobile Darstellung",
+        value=False,
+        help="Reduziert Achsenbeschriftungen und Abstände für Handy/Hochformat.",
+    )
     view_days = FORECAST_VIEW_DAYS[view_label]
     visible_forecast = filter_forecast_rows_by_days(pv_forecast, view_days)
     # Plotly-Relayoutdaten aus manuellem Zoom werden in Streamlit nicht
@@ -984,7 +995,11 @@ if forecast_is_selected:
             trace_name="Gesamtertrag" if forecast_target_type == "Kraftwerk" else "Ertrag pro Stunde",
             component_series=visible_component_series,
             stack_components=expert_mode and forecast_target_type == "Kraftwerk",
-            tick_interval_hours=tick_interval_for_view_days(view_days),
+            tick_interval_hours=tick_interval_for_view_days(
+                view_days, compact=compact_chart
+            ),
+            compact=compact_chart,
+            view_days=view_days,
         ),
         use_container_width=True,
         config={"displayModeBar": False},
@@ -1012,7 +1027,113 @@ if expert_mode:
 
         weather_forecast = st.session_state.get("weather_forecast", [])
         weather_installation_id = st.session_state.get("weather_installation_id")
+        weather_source_installation_id = selected_installation_id
+        if forecast_target_type == "Kraftwerk":
+            plant_installations = [
+                installation
+                for installation in installations
+                if installation.get("plant_id") == selected_plant_id
+            ]
+            if plant_installations:
+                default_source_id = default_weather_source_installation_id(
+                    plant_installations,
+                    st.session_state.get("pv_forecast_components", []),
+                )
+                default_index = next(
+                    (
+                        index
+                        for index, installation in enumerate(plant_installations)
+                        if installation["id"] == default_source_id
+                    ),
+                    0,
+                )
+                st.caption(
+                    "Bei Kraftwerken werden Wetterdaten einer ausgewählten Anlage "
+                    "angezeigt. Bei Anlagen an unterschiedlichen Standorten bitte "
+                    "die passende Wetterdaten-Quelle wählen."
+                )
+                if installations_share_same_location(plant_installations):
+                    st.info("Alle Anlagen liegen am gleichen Standort.")
+                weather_source_installation_id = st.selectbox(
+                    "Wetterdaten-Quelle",
+                    options=[installation["id"] for installation in plant_installations],
+                    index=default_index,
+                    format_func=lambda installation_id: installations_by_id[
+                        installation_id
+                    ]["name"],
+                )
+            else:
+                weather_source_installation_id = None
+
         if (
+            weather_source_installation_id
+            and weather_installation_id != weather_source_installation_id
+        ):
+            try:
+                weather_response = api_get(
+                    f"/installations/{weather_source_installation_id}/weather-forecast",
+                    timeout=15.0,
+                )
+                weather_response.raise_for_status()
+                weather_forecast = weather_response.json()
+                st.session_state["weather_forecast"] = weather_forecast
+                st.session_state["weather_installation_id"] = weather_source_installation_id
+                st.session_state.pop("weather_details_error", None)
+            except (httpx.HTTPError, ValueError):
+                weather_forecast = []
+                st.session_state["weather_details_error"] = (
+                    "Technische Wetterdetails konnten nicht zusätzlich geladen werden."
+                )
+
+        if weather_source_installation_id and weather_forecast:
+            weather_table = [
+                {
+                    "Zeitpunkt": format_german_datetime(row["timestamp"]),
+                    "Temperatur (°C)": row["temperature_2m"],
+                    "Bewölkung (%)": row["cloud_cover"],
+                    "Direktstrahlung (W/m²)": row["direct_radiation"],
+                    "Diffusstrahlung (W/m²)": row["diffuse_radiation"],
+                    "Wind 10 m (km/h)": row["wind_speed_10m"],
+                }
+                for row in weather_forecast
+            ]
+            st.markdown("#### Wettertabelle")
+            st.dataframe(weather_table, use_container_width=True, hide_index=True)
+            st.markdown("#### Wetter- und Strahlungsdaten")
+            weather_view_label = st.radio(
+                "Zeitraum Wetterdaten",
+                options=list(FORECAST_VIEW_DAYS),
+                index=list(FORECAST_VIEW_DAYS).index(view_label),
+                horizontal=True,
+            )
+            weather_view_days = FORECAST_VIEW_DAYS[weather_view_label]
+            weather_variables = available_weather_variables(weather_forecast)
+            if weather_variables:
+                selected_weather_keys = st.multiselect(
+                    "Wetterdaten anzeigen",
+                    options=list(weather_variables),
+                    default=default_weather_variable_selection(weather_variables),
+                    format_func=lambda key: weather_variables[key][0],
+                )
+                if selected_weather_keys:
+                    st.plotly_chart(
+                        create_weather_chart(
+                            weather_forecast,
+                            selected_variables=selected_weather_keys,
+                            view_days=weather_view_days,
+                            compact=compact_chart,
+                        ),
+                        use_container_width=True,
+                        config={"displayModeBar": False},
+                    )
+                else:
+                    st.info("Bitte mindestens eine Wettervariable auswählen.")
+            else:
+                st.info("Im aktuellen Payload sind keine plottbaren Wetterdaten vorhanden.")
+        elif st.session_state.get("weather_details_error"):
+            st.warning(st.session_state["weather_details_error"])
+
+        if False and (
             forecast_target_type == "Einzelanlage"
             and weather_forecast
             and weather_installation_id == selected_installation_id
