@@ -175,8 +175,8 @@ def tick_interval_for_view_days(days: int, *, compact: bool = False) -> int:
         if days <= 1:
             return 3
         if days <= 3:
-            return 6
-        return 12
+            return 12
+        return 24
     if days <= 1:
         return 1
     if days <= 3:
@@ -259,14 +259,12 @@ def time_axis_tick_text(
     tick_values: list[datetime], *, compact: bool = False, view_days: int | None = None
 ) -> list[str]:
     if compact and (view_days or 0) >= 7:
-        return [value.strftime("%d.%m.") for value in tick_values]
+        return ["" for _ in tick_values]
     return [value.strftime("%H:%M") for value in tick_values]
 
 
 def should_show_day_annotations(*, compact: bool = False, view_days: int | None = None) -> bool:
-    if not compact:
-        return True
-    return view_days == 3
+    return view_days in (3, 7)
 
 
 def apply_time_axis(
@@ -281,11 +279,18 @@ def apply_time_axis(
         return
 
     interval = tick_interval_hours or _tick_interval_hours(chart_times)
-    tick_values = [
-        chart_time
-        for chart_time in chart_times
-        if chart_time.minute == 0 and chart_time.hour % interval == 0
-    ]
+    if compact and (view_days or 0) >= 7:
+        tick_values = [
+            chart_time
+            for chart_time in chart_times
+            if chart_time.minute == 0 and chart_time.hour == 12
+        ]
+    else:
+        tick_values = [
+            chart_time
+            for chart_time in chart_times
+            if chart_time.minute == 0 and chart_time.hour % interval == 0
+        ]
     tick_text = time_axis_tick_text(
         tick_values, compact=compact, view_days=view_days
     )

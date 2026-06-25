@@ -84,10 +84,10 @@ with st.sidebar:
         "Expertenmodus",
         help="Zeigt technische Eingaben, Wetterdetails und API-Rohdaten an.",
     )
-    compact_chart = st.checkbox(
-        "Kompakte mobile Darstellung",
+    compact_chart = st.toggle(
+        "Kompakte Ansicht",
         value=False,
-        help="Reduziert Achsenbeschriftungen und Abstände für Handy/Hochformat.",
+        help="Reduziert Achsenbeschriftungen und Abstände, besonders für Handy/Hochformat.",
     )
 normalized_session_id = stable_session_id_from_code(normalized_user_code)
 st.session_state["user_code"] = normalized_user_code
@@ -1097,8 +1097,8 @@ if expert_mode:
                 }
                 for row in weather_forecast
             ]
-            st.markdown("#### Wettertabelle")
-            st.dataframe(weather_table, use_container_width=True, hide_index=True)
+            with st.expander("Wettertabelle", expanded=False):
+                st.dataframe(weather_table, use_container_width=True, hide_index=True)
             st.markdown("#### Wetter- und Strahlungsdaten")
             weather_view_label = st.radio(
                 "Zeitraum Wetterdaten",

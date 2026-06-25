@@ -124,7 +124,7 @@ def test_weather_chart_tick_density_and_compact_labels_follow_view_days() -> Non
     assert "01:00" not in list(compact.layout.xaxis.ticktext)
 
 
-def test_weather_chart_reuses_compact_seven_day_date_labels() -> None:
+def test_weather_chart_reuses_compact_seven_day_date_annotations() -> None:
     first_utc = datetime(2026, 6, 26, 0, tzinfo=timezone.utc)
     rows = [
         {
@@ -141,9 +141,9 @@ def test_weather_chart_reuses_compact_seven_day_date_labels() -> None:
         compact=True,
     )
 
-    assert all(":" not in label for label in figure.layout.xaxis.ticktext)
-    assert all(label.endswith(".") for label in figure.layout.xaxis.ticktext)
-    assert len(figure.layout.annotations) == 0
+    assert all(label == "" for label in figure.layout.xaxis.ticktext)
+    assert len(figure.layout.annotations) >= 7
+    assert all(annotation.text.endswith(".") for annotation in figure.layout.annotations)
 
 
 def test_default_weather_source_prefers_largest_component_energy() -> None:
