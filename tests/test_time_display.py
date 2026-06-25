@@ -317,13 +317,16 @@ def test_hourly_energy_chart_compact_mode_reduces_labels_and_day_annotations() -
     assert compact.layout.margin.b < desktop.layout.margin.b
 
 
-def test_compact_time_axis_for_seven_days_uses_only_short_dates() -> None:
+def test_compact_time_axis_for_seven_days_uses_noon_time_label() -> None:
     tick_values = [
         datetime(2026, 6, 25, 0),
         datetime(2026, 6, 26, 12),
     ]
 
-    assert time_axis_tick_text(tick_values, compact=True, view_days=7) == ["", ""]
+    assert time_axis_tick_text(tick_values, compact=True, view_days=7) == [
+        "00:00",
+        "12:00",
+    ]
 
 
 def test_compact_three_day_chart_uses_time_ticks_and_short_day_annotations() -> None:
@@ -349,7 +352,7 @@ def test_compact_three_day_chart_uses_time_ticks_and_short_day_annotations() -> 
     assert all("2026" not in annotation.text for annotation in figure.layout.annotations)
 
 
-def test_compact_seven_day_chart_uses_no_time_labels_and_short_day_annotations() -> None:
+def test_compact_seven_day_chart_uses_noon_time_labels_and_short_day_annotations() -> None:
     first_utc = datetime(2026, 6, 26, 0, tzinfo=timezone.utc)
     rows = [
         {
@@ -366,10 +369,12 @@ def test_compact_seven_day_chart_uses_no_time_labels_and_short_day_annotations()
         view_days=7,
     )
 
-    assert all(label == "" for label in figure.layout.xaxis.ticktext)
+    assert set(figure.layout.xaxis.ticktext) == {"12:00"}
     assert len(figure.layout.annotations) >= 7
     assert all(annotation.text.endswith(".") for annotation in figure.layout.annotations)
     assert all("2026" not in annotation.text for annotation in figure.layout.annotations)
+    assert figure.layout.yaxis.title.text == ""
+    assert figure.layout.margin.l < 12
 
 
 def test_hourly_chart_can_add_component_curves() -> None:

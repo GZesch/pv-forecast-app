@@ -258,8 +258,6 @@ def _tick_interval_hours(chart_times: list[datetime]) -> int:
 def time_axis_tick_text(
     tick_values: list[datetime], *, compact: bool = False, view_days: int | None = None
 ) -> list[str]:
-    if compact and (view_days or 0) >= 7:
-        return ["" for _ in tick_values]
     return [value.strftime("%H:%M") for value in tick_values]
 
 
@@ -492,13 +490,13 @@ def create_hourly_energy_chart(
         bargap=0.12,
         height=420 if compact else 480,
         margin=(
-            {"l": 32, "r": 16, "t": 10, "b": 52}
+            {"l": 8, "r": 8, "t": 6, "b": 58}
             if compact
             else {"l": 44, "r": 24, "t": 18, "b": 116}
         ),
         hovermode="x unified",
         showlegend=bool(stack_components and components),
-        yaxis_title="Ertrag [kWh]",
+        yaxis_title="" if compact else "Ertrag [kWh]",
         font={"size": 13 if compact else 15},
         legend={
             "orientation": "h",
@@ -515,8 +513,8 @@ def create_hourly_energy_chart(
     figure.update_yaxes(
         gridcolor="rgba(120, 120, 120, 0.16)",
         gridwidth=0.6,
-        title={"font": {"size": 16 if compact else 18}},
-        tickfont={"size": 13 if compact else 15},
+        title={"font": {"size": 1 if compact else 18}},
+        tickfont={"size": 11 if compact else 15},
         zerolinecolor="rgba(120, 120, 120, 0.25)",
         rangemode="tozero",
     )

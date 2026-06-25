@@ -154,21 +154,27 @@ def create_weather_chart(
         title={"text": ""},
         height=400 if compact else 450,
         margin=(
-            {"l": 32, "r": 36, "t": 10, "b": 52}
+            {"l": 8, "r": 8, "t": 6, "b": 58}
             if compact
             else {"l": 44, "r": 56, "t": 18, "b": 96}
         ),
         hovermode="x unified",
         yaxis={
-            "title": {"text": primary_title, "font": {"size": 16 if compact else 18}},
-            "tickfont": {"size": 13 if compact else 15},
+            "title": {
+                "text": "" if compact else primary_title,
+                "font": {"size": 1 if compact else 18},
+            },
+            "tickfont": {"size": 10 if compact else 15},
             "gridcolor": "rgba(120, 120, 120, 0.16)",
             "gridwidth": 0.6,
             "rangemode": "tozero",
         },
         yaxis2={
-            "title": {"text": "Wetterwerte", "font": {"size": 16 if compact else 18}},
-            "tickfont": {"size": 13 if compact else 15},
+            "title": {
+                "text": "" if compact else "Wetterwerte",
+                "font": {"size": 1 if compact else 18},
+            },
+            "tickfont": {"size": 10 if compact else 15},
             "overlaying": "y",
             "side": "right",
             "showgrid": False,
