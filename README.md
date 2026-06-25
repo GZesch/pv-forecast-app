@@ -43,10 +43,13 @@ Die folgenden Endpunkte verwalten PV-Anlagen dauerhaft in DuckDB:
 - `DELETE /installations/{id}` – eine Anlage löschen
 
 Alle Anlagen-Endpunkte erwarten den Header `X-Session-ID` mit einer UUID. Das
-Streamlit-Frontend erzeugt beim ersten Besuch automatisch eine anonyme UUID und
-speichert sie in `st.session_state`. Anlagen, Forecasts und Historie sind dadurch
-nur innerhalb dieser Besucher-Session sichtbar; es gibt bewusst keine Anmeldung
-und kein User-Management.
+Streamlit-Frontend fragt in der Sidebar einen einfachen Projekt-/Nutzercode ab
+und leitet daraus deterministisch eine stabile UUID ab. Der Code wird getrimmt,
+in Kleinbuchstaben normalisiert und leere Eingaben fallen auf `demo` zurück:
+`uuid.uuid5(uuid.NAMESPACE_URL, f"pv-forecast:{code}")`. Mit demselben Code sind
+Anlagen nach Browser-Reloads, Docker-Restarts und Server-Restarts wieder
+sichtbar. Der Code ist kein Passwort, bietet keine echte Authentifizierung und
+ersetzt bewusst kein Login-System.
 
 Im Streamlit-Frontend können Anlagen über ein Formular angelegt werden. Die
 Anlagenliste wird direkt nach dem Speichern neu vom Backend geladen. Der als
@@ -61,6 +64,26 @@ Koordinaten-Fallback.
 Für einen öffentlich betriebenen Dienst sollte `NOMINATIM_USER_AGENT` auf eine
 eindeutige Anwendungskennung mit Kontaktmöglichkeit gesetzt werden. Die öffentliche
 Nominatim-Instanz wird mit maximal einer Anfrage pro Sekunde angesprochen.
+
+### Bestehende flüchtige Sessions einem Projektcode zuordnen
+
+Vor der Einführung des Projektcodes wurden Session-IDs flüchtig im
+Streamlit-Prozess erzeugt. Solche Anlagen bleiben in DuckDB erhalten, werden aber
+erst wieder angezeigt, wenn ihre alte `session_id` auf die stabile UUID eines
+Projektcodes umgestellt wird. Das sollte nur nach einem Backup und bewusst für
+eine bekannte alte Session erfolgen.
+
+Stabile UUID für einen Code berechnen:
+
+```bash
+docker compose exec backend python -c "import uuid; print(uuid.uuid5(uuid.NAMESPACE_URL, 'pv-forecast:demo'))"
+```
+
+Beispielhafte Zuordnung einer alten Session auf den Code `demo`:
+
+```bash
+docker compose exec backend python -c "import duckdb, uuid; db='/app/database/pv_forecast.duckdb'; old='<alte-session-id>'; new=str(uuid.uuid5(uuid.NAMESPACE_URL, 'pv-forecast:demo')); con=duckdb.connect(db); con.execute('UPDATE installations SET session_id = ? WHERE session_id = ?', [new, old]); con.execute('UPDATE plants SET session_id = ? WHERE session_id = ?', [new, old]); con.close(); print(new)"
+```
 
 ## Wettervorhersage
 

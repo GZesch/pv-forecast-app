@@ -1,11 +1,11 @@
 import os
 from html import escape
-from uuid import uuid4
 
 import httpx
 import streamlit as st
 
 from api_errors import response_error_message
+from forecast_response import forecast_warning
 from installation_display import format_installation_location, location_columns
 from plant_display import calculate_total_peak_power
 from time_display import (
@@ -14,14 +14,31 @@ from time_display import (
     format_german_datetime,
     summarize_daily_power,
 )
+from session_identity import DEFAULT_USER_CODE, stable_session_id_from_code
 
 st.set_page_config(page_title="PV Forecast", page_icon="☀️", layout="wide")
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 REQUEST_TIMEOUT = 5.0
 
-if "session_id" not in st.session_state:
-    st.session_state["session_id"] = str(uuid4())
+if "user_code" not in st.session_state:
+    st.session_state["user_code"] = DEFAULT_USER_CODE
+
+with st.sidebar:
+    st.subheader("Projekt-/Nutzercode")
+    user_code_input = st.text_input(
+        "Code",
+        value=st.session_state["user_code"],
+        help="Mit diesem Code findest du deine Anlagen später wieder.",
+    )
+    st.caption(
+        "Mit diesem Code findest du deine Anlagen später wieder. "
+        "Er ist kein Passwort und ersetzt kein Login."
+    )
+
+normalized_session_id = stable_session_id_from_code(user_code_input)
+st.session_state["user_code"] = user_code_input
+st.session_state["session_id"] = str(normalized_session_id)
 
 
 def api_headers() -> dict[str, str]:
@@ -252,6 +269,7 @@ def confirm_installation_delete(installation: dict, table_key: str) -> None:
                 "pv_forecast_metrics",
                 "pv_forecast_installation_id",
                 "pv_forecast_components",
+                "pv_forecast_warning",
                 "pv_forecast_target_key",
             ):
                 st.session_state.pop(key, None)
@@ -385,6 +403,7 @@ def edit_installation_dialog(installation: dict, table_key: str) -> None:
                 "pv_daily_energy",
                 "pv_forecast_metrics",
                 "pv_forecast_components",
+                "pv_forecast_warning",
                 "pv_forecast_target_key",
             ):
                 st.session_state.pop(key, None)
@@ -541,6 +560,7 @@ def render_installation_table(items: list[dict], show_expert_columns: bool) -> N
                     "pv_forecast_metrics",
                     "pv_forecast_installation_id",
                     "pv_forecast_components",
+                    "pv_forecast_warning",
                     "pv_forecast_target_key",
                 ):
                     st.session_state.pop(key, None)
@@ -697,6 +717,7 @@ with plant_right:
                             "pv_daily_energy",
                             "pv_forecast_metrics",
                             "pv_forecast_components",
+                            "pv_forecast_warning",
                             "pv_forecast_target_key",
                         ):
                             st.session_state.pop(key, None)
@@ -809,6 +830,7 @@ else:
     forecast_button_label = "Gesamtprognose berechnen"
 
 if st.button(forecast_button_label, type="primary"):
+    st.session_state.pop("pv_forecast_warning", None)
     try:
         with st.spinner("Prognose wird berechnet …"):
             forecast_response = api_get(
@@ -827,6 +849,9 @@ if st.button(forecast_button_label, type="primary"):
             st.session_state["pv_forecast_components"] = forecast_payload.get(
                 "components", []
             )
+            warning = forecast_warning(forecast_payload)
+            if warning:
+                st.session_state["pv_forecast_warning"] = warning
             st.session_state["pv_forecast_target_key"] = forecast_target_key
     except httpx.HTTPStatusError as exc:
         st.error(
@@ -839,7 +864,11 @@ if st.button(forecast_button_label, type="primary"):
     except httpx.RequestError:
         st.error("Das Backend ist beim Berechnen der Prognose nicht erreichbar.")
     else:
-        if forecast_target_type != "Einzelanlage":
+        if st.session_state.get("pv_forecast_warning"):
+            st.session_state.pop("weather_forecast", None)
+            st.session_state.pop("weather_installation_id", None)
+            st.session_state.pop("weather_details_error", None)
+        elif forecast_target_type != "Einzelanlage":
             st.session_state.pop("weather_forecast", None)
             st.session_state.pop("weather_installation_id", None)
             st.session_state.pop("weather_details_error", None)
@@ -865,6 +894,9 @@ forecast_is_selected = (
 )
 
 if forecast_is_selected:
+    forecast_warning_message = st.session_state.get("pv_forecast_warning")
+    if forecast_warning_message:
+        st.warning(forecast_warning_message)
     daily_summaries = summarize_daily_power(pv_forecast)
     labels = ("Heute", "Morgen", "Übermorgen")
     columns = st.columns(3)
