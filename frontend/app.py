@@ -5,9 +5,22 @@ import httpx
 import streamlit as st
 
 from api_errors import response_error_message
+from export_data import (
+    build_forecast_export_rows,
+    export_filename,
+    forecast_rows_to_csv,
+    forecast_rows_to_json,
+)
 from forecast_response import forecast_warning
 from installation_display import format_installation_location, location_columns
 from plant_display import calculate_total_peak_power
+from session_identity import (
+    PROJECT_QUERY_PARAM,
+    normalize_user_code,
+    project_code_from_query_params,
+    shareable_project_url,
+    stable_session_id_from_code,
+)
 from time_display import (
     FORECAST_VIEW_DAYS,
     create_hourly_energy_chart,
@@ -17,9 +30,10 @@ from time_display import (
     format_german_date,
     format_german_datetime,
     summarize_daily_power,
+    today_in_display_timezone,
     tick_interval_for_view_days,
 )
-from session_identity import DEFAULT_USER_CODE, stable_session_id_from_code
+from weather_display import available_weather_variables
 
 st.set_page_config(page_title="PV Forecast", page_icon="☀️", layout="wide")
 
@@ -27,7 +41,9 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 REQUEST_TIMEOUT = 5.0
 
 if "user_code" not in st.session_state:
-    st.session_state["user_code"] = DEFAULT_USER_CODE
+    st.session_state["user_code"] = project_code_from_query_params(st.query_params)
+elif PROJECT_QUERY_PARAM in st.query_params:
+    st.session_state["user_code"] = project_code_from_query_params(st.query_params)
 
 with st.sidebar:
     st.subheader("Projekt-/Nutzercode")
@@ -41,8 +57,24 @@ with st.sidebar:
         "Er ist kein Passwort und ersetzt kein Login."
     )
 
-normalized_session_id = stable_session_id_from_code(user_code_input)
-st.session_state["user_code"] = user_code_input
+normalized_user_code = normalize_user_code(user_code_input)
+if st.query_params.get(PROJECT_QUERY_PARAM) != normalized_user_code:
+    st.query_params[PROJECT_QUERY_PARAM] = normalized_user_code
+with st.sidebar:
+    st.caption("Gleicher Projektcode = gleicher Arbeitsbereich. Der Code ist kein Passwort.")
+    current_url = getattr(getattr(st, "context", None), "url", "")
+    share_url = (
+        shareable_project_url(current_url, normalized_user_code)
+        if current_url
+        else f"?project={normalized_user_code}"
+    )
+    st.text_input(
+        "Teilbarer Link",
+        value=share_url,
+        help="Diesen Link kannst du kopieren. Er enthält nur den Projektcode, kein Passwort.",
+    )
+normalized_session_id = stable_session_id_from_code(normalized_user_code)
+st.session_state["user_code"] = normalized_user_code
 st.session_state["session_id"] = str(normalized_session_id)
 
 
@@ -638,7 +670,11 @@ def edit_plant_dialog(plant: dict) -> None:
 
 st.divider()
 st.header("Kraftwerke")
-plant_left, plant_right = st.columns(2, gap="large")
+st.caption(
+    "Ein Kraftwerk ist eine Organisationseinheit, die mehrere PV-Anlagen "
+    "zusammenfasst, z. B. mehrere Dachseiten oder Standorte."
+)
+plant_left, plant_right, plant_assign = st.columns([1.0, 1.35, 1.15], gap="medium")
 
 with plant_left:
     st.subheader("Kraftwerk anlegen")
@@ -739,16 +775,16 @@ with plant_right:
         st.info("Noch keine Kraftwerke vorhanden.")
 
 if plants and installations:
-    st.subheader("Anlagen zuordnen")
+    plant_assign.subheader("Anlagen zuordnen")
     plants_by_id = {plant["id"]: plant for plant in plants}
-    assignment_plant_id = st.selectbox(
+    assignment_plant_id = plant_assign.selectbox(
         "Kraftwerk auswählen",
         options=list(plants_by_id),
         format_func=lambda plant_id: plants_by_id[plant_id]["name"],
         key="assignment_plant_id",
     )
     assignment_values: dict[str, bool] = {}
-    with st.form(f"plant-assignment-{assignment_plant_id}"):
+    with plant_assign.form(f"plant-assignment-{assignment_plant_id}"):
         for installation in installations:
             assigned_plant_id = installation.get("plant_id")
             label = installation["name"]
@@ -793,6 +829,9 @@ if plants and installations:
             )
         except httpx.RequestError:
             st.error("Das Backend ist beim Speichern der Zuordnung nicht erreichbar.")
+elif not (plants and installations):
+    plant_assign.subheader("Anlagen zuordnen")
+    plant_assign.info("Lege zuerst mindestens ein Kraftwerk und eine Anlage an.")
 
 st.divider()
 st.header("PV-Prognose")
@@ -991,6 +1030,29 @@ if expert_mode:
             ]
             st.markdown("#### Wettertabelle")
             st.dataframe(weather_table, use_container_width=True, hide_index=True)
+            st.markdown("#### Wetterdaten / Strahlungsdaten")
+            weather_variables = available_weather_variables(weather_forecast)
+            if weather_variables:
+                selected_weather_key = st.selectbox(
+                    "Variable auswÃ¤hlen",
+                    options=list(weather_variables),
+                    format_func=lambda key: weather_variables[key][0],
+                )
+                weather_label, weather_axis_title = weather_variables[
+                    selected_weather_key
+                ]
+                st.plotly_chart(
+                    create_hourly_chart(
+                        weather_forecast,
+                        value_key=selected_weather_key,
+                        trace_name=weather_label,
+                        y_axis_title=weather_axis_title,
+                    ),
+                    use_container_width=True,
+                    config={"displayModeBar": False},
+                )
+            else:
+                st.info("Im aktuellen Payload sind keine plottbaren Wetterdaten vorhanden.")
             st.markdown("#### Direktstrahlung")
             st.plotly_chart(
                 create_hourly_chart(
@@ -1006,6 +1068,34 @@ if expert_mode:
             st.warning(st.session_state["weather_details_error"])
 
         if forecast_is_selected:
+            st.markdown("#### Export")
+            export_rows = build_forecast_export_rows(
+                pv_forecast,
+                component_series=st.session_state.get("pv_forecast_components", []),
+                weather_rows=weather_forecast,
+            )
+            export_date = today_in_display_timezone()
+            export_left, export_right = st.columns(2)
+            with export_left:
+                st.download_button(
+                    "CSV herunterladen",
+                    data=forecast_rows_to_csv(export_rows),
+                    file_name=export_filename(
+                        normalized_user_code, "csv", export_date
+                    ),
+                    mime="text/csv",
+                    disabled=not export_rows,
+                )
+            with export_right:
+                st.download_button(
+                    "JSON herunterladen",
+                    data=forecast_rows_to_json(export_rows),
+                    file_name=export_filename(
+                        normalized_user_code, "json", export_date
+                    ),
+                    mime="application/json",
+                    disabled=not export_rows,
+                )
             st.markdown("#### Rohdaten")
             st.json(
                 {
