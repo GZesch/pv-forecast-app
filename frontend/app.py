@@ -9,11 +9,15 @@ from forecast_response import forecast_warning
 from installation_display import format_installation_location, location_columns
 from plant_display import calculate_total_peak_power
 from time_display import (
+    FORECAST_VIEW_DAYS,
     create_hourly_energy_chart,
     create_hourly_chart,
+    filter_component_series_by_days,
+    filter_forecast_rows_by_days,
     format_german_date,
     format_german_datetime,
     summarize_daily_power,
+    tick_interval_for_view_days,
 )
 from session_identity import DEFAULT_USER_CODE, stable_session_id_from_code
 
@@ -917,16 +921,31 @@ if forecast_is_selected:
                 )
 
     st.subheader("PV-Ertrag pro Stunde")
-    component_series = (
-        st.session_state.get("pv_forecast_components", [])
-        if forecast_target_type == "Kraftwerk"
+    view_label = st.radio(
+        "Zeitraum",
+        options=list(FORECAST_VIEW_DAYS),
+        index=list(FORECAST_VIEW_DAYS).index("7 Tage"),
+        horizontal=True,
+    )
+    view_days = FORECAST_VIEW_DAYS[view_label]
+    visible_forecast = filter_forecast_rows_by_days(pv_forecast, view_days)
+    # Plotly-Relayoutdaten aus manuellem Zoom werden in Streamlit nicht
+    # zuverlässig serverseitig ausgewertet. Deshalb steuert diese Auswahl die
+    # Tick-Dichte bewusst explizit.
+    visible_component_series = (
+        filter_component_series_by_days(
+            st.session_state.get("pv_forecast_components", []), view_days
+        )
+        if expert_mode and forecast_target_type == "Kraftwerk"
         else []
     )
     st.plotly_chart(
         create_hourly_energy_chart(
-            pv_forecast,
+            visible_forecast,
             trace_name="Gesamtertrag" if forecast_target_type == "Kraftwerk" else "Ertrag pro Stunde",
-            component_series=component_series,
+            component_series=visible_component_series,
+            stack_components=expert_mode and forecast_target_type == "Kraftwerk",
+            tick_interval_hours=tick_interval_for_view_days(view_days),
         ),
         use_container_width=True,
         config={"displayModeBar": False},

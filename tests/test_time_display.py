@@ -3,11 +3,14 @@ from datetime import date, datetime, timedelta, timezone
 from frontend.time_display import (
     create_hourly_energy_chart,
     create_hourly_chart,
+    filter_component_series_by_days,
+    filter_forecast_rows_by_days,
     forecast_rows_to_hourly_energy,
     format_german_date,
     format_german_datetime,
     summarize_daily_power,
     sum_hourly_energy_series,
+    tick_interval_for_view_days,
 )
 
 
@@ -117,6 +120,48 @@ def test_hourly_energy_series_are_summed_by_timestamp() -> None:
     assert [row["interval_energy_kwh"] for row in total] == [3.5, 5.5]
 
 
+def test_forecast_rows_are_filtered_by_selected_days() -> None:
+    first_utc = datetime(2026, 6, 26, 0, tzinfo=timezone.utc)
+    rows = [
+        {
+            "timestamp": (first_utc + timedelta(hours=hour)).isoformat(),
+            "predicted_power_kw": float(hour),
+        }
+        for hour in range(8 * 24)
+    ]
+
+    assert len(filter_forecast_rows_by_days(rows, 1)) == 24
+    assert len(filter_forecast_rows_by_days(rows, 3)) == 72
+    assert len(filter_forecast_rows_by_days(rows, 7)) == 168
+
+
+def test_component_series_are_filtered_by_selected_days() -> None:
+    first_utc = datetime(2026, 6, 26, 0, tzinfo=timezone.utc)
+    components = [
+        {
+            "name": "Ost",
+            "hourly": [
+                {
+                    "timestamp": (first_utc + timedelta(hours=hour)).isoformat(),
+                    "predicted_power_kw": 1.0,
+                }
+                for hour in range(48)
+            ],
+        }
+    ]
+
+    filtered = filter_component_series_by_days(components, 1)
+
+    assert filtered[0]["name"] == "Ost"
+    assert len(filtered[0]["hourly"]) == 24
+
+
+def test_tick_interval_matches_selected_view_days() -> None:
+    assert tick_interval_for_view_days(1) == 1
+    assert tick_interval_for_view_days(3) == 3
+    assert tick_interval_for_view_days(7) == 6
+
+
 def test_hourly_energy_chart_uses_single_bar_trace_for_installation() -> None:
     rows = [
         {"timestamp": "2026-06-26T08:00:00Z", "predicted_power_kw": 2.0},
@@ -125,7 +170,7 @@ def test_hourly_energy_chart_uses_single_bar_trace_for_installation() -> None:
 
     figure = create_hourly_energy_chart(rows)
 
-    assert figure.layout.title.text == "PV-Ertrag pro Stunde"
+    assert figure.layout.title.text == ""
     assert figure.layout.yaxis.title.text == "Ertrag [kWh]"
     assert len(figure.data) == 1
     assert figure.data[0].type == "bar"
@@ -151,12 +196,98 @@ def test_hourly_energy_chart_stacks_component_bars_for_plant() -> None:
         },
     ]
 
-    figure = create_hourly_energy_chart(total_rows, component_series=components)
+    figure = create_hourly_energy_chart(
+        total_rows, component_series=components, stack_components=True
+    )
 
     assert figure.layout.barmode == "stack"
     assert [trace.name for trace in figure.data] == ["Ost", "West"]
     assert [trace.type for trace in figure.data] == ["bar", "bar"]
     assert sum(trace.y[0] for trace in figure.data) == 3.5
+
+
+def test_hourly_energy_chart_standard_mode_shows_sum_not_components() -> None:
+    total_rows = [
+        {"timestamp": "2026-06-26T08:00:00Z", "predicted_power_kw": 3.5},
+    ]
+    components = [
+        {
+            "name": "Ost",
+            "hourly": [
+                {"timestamp": "2026-06-26T08:00:00Z", "predicted_power_kw": 2.0}
+            ],
+        },
+        {
+            "name": "West",
+            "hourly": [
+                {"timestamp": "2026-06-26T08:00:00Z", "predicted_power_kw": 1.5}
+            ],
+        },
+    ]
+
+    figure = create_hourly_energy_chart(
+        total_rows, component_series=components, stack_components=False
+    )
+
+    assert len(figure.data) == 1
+    assert figure.data[0].name == "Ertrag pro Stunde"
+    assert list(figure.data[0].y) == [3.5]
+    assert figure.layout.showlegend is False
+
+
+def test_hourly_energy_chart_sorts_components_by_displayed_energy_descending() -> None:
+    total_rows = [
+        {"timestamp": "2026-06-26T08:00:00Z", "predicted_power_kw": 10.0},
+        {"timestamp": "2026-06-26T09:00:00Z", "predicted_power_kw": 10.0},
+    ]
+    components = [
+        {
+            "name": "Klein",
+            "hourly": [
+                {"timestamp": "2026-06-26T08:00:00Z", "predicted_power_kw": 1.0},
+                {"timestamp": "2026-06-26T09:00:00Z", "predicted_power_kw": 1.0},
+            ],
+        },
+        {
+            "name": "Groß",
+            "hourly": [
+                {"timestamp": "2026-06-26T08:00:00Z", "predicted_power_kw": 4.0},
+                {"timestamp": "2026-06-26T09:00:00Z", "predicted_power_kw": 5.0},
+            ],
+        },
+        {
+            "name": "Mittel",
+            "hourly": [
+                {"timestamp": "2026-06-26T08:00:00Z", "predicted_power_kw": 2.0},
+                {"timestamp": "2026-06-26T09:00:00Z", "predicted_power_kw": 3.0},
+            ],
+        },
+    ]
+
+    figure = create_hourly_energy_chart(
+        total_rows, component_series=components, stack_components=True
+    )
+
+    assert [trace.name for trace in figure.data] == ["Groß", "Mittel", "Klein"]
+    assert figure.layout.showlegend is True
+
+
+def test_hourly_energy_chart_uses_explicit_tick_interval() -> None:
+    first_utc = datetime(2026, 6, 26, 0, tzinfo=timezone.utc)
+    rows = [
+        {
+            "timestamp": (first_utc + timedelta(hours=hour)).isoformat(),
+            "predicted_power_kw": 1.0,
+        }
+        for hour in range(24)
+    ]
+
+    one_day = create_hourly_energy_chart(rows, tick_interval_hours=1)
+    weekly = create_hourly_energy_chart(rows, tick_interval_hours=6)
+
+    assert len(one_day.layout.xaxis.ticktext) > len(weekly.layout.xaxis.ticktext)
+    assert "01:00" in list(one_day.layout.xaxis.ticktext)
+    assert "01:00" not in list(weekly.layout.xaxis.ticktext)
 
 
 def test_hourly_chart_can_add_component_curves() -> None:
