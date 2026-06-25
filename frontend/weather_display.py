@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 
 try:
     from .time_display import (
+        apply_time_axis,
         filter_forecast_rows_by_days,
         format_german_datetime,
         parse_timestamp,
@@ -11,6 +12,7 @@ try:
     )
 except ImportError:
     from time_display import (
+        apply_time_axis,
         filter_forecast_rows_by_days,
         format_german_datetime,
         parse_timestamp,
@@ -134,19 +136,6 @@ def create_weather_chart(
             )
         )
 
-    interval = tick_interval_for_view_days(view_days, compact=compact)
-    tick_values = [
-        chart_time
-        for chart_time in chart_times
-        if chart_time.minute == 0 and chart_time.hour % interval == 0
-    ]
-    if compact and view_days >= 7:
-        tick_text = [value.strftime("%d.%m") for value in tick_values]
-    elif compact and view_days >= 3:
-        tick_text = [value.strftime("%d.%m %H:%M") for value in tick_values]
-    else:
-        tick_text = [value.strftime("%H:%M") for value in tick_values]
-
     primary_title = (
         "Strahlung [W/m²]"
         if has_radiation
@@ -154,15 +143,12 @@ def create_weather_chart(
         if selected_variables
         else ""
     )
-    figure.update_xaxes(
-        tickmode="array",
-        tickvals=tick_values,
-        ticktext=tick_text,
-        tickfont={"size": 12 if compact else 14},
-        showgrid=True,
-        gridcolor="rgba(120, 120, 120, 0.16)",
-        gridwidth=0.6,
-        title=None,
+    apply_time_axis(
+        figure,
+        chart_times,
+        tick_interval_hours=tick_interval_for_view_days(view_days, compact=compact),
+        compact=compact,
+        view_days=view_days,
     )
     figure.update_layout(
         title={"text": ""},

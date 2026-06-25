@@ -8,8 +8,10 @@ from frontend.time_display import (
     forecast_rows_to_hourly_energy,
     format_german_date,
     format_german_datetime,
+    format_short_german_date,
     summarize_daily_power,
     sum_hourly_energy_series,
+    time_axis_tick_text,
     tick_interval_for_view_days,
 )
 
@@ -20,6 +22,7 @@ def test_timestamp_is_converted_to_berlin_and_formatted_in_german() -> None:
         == "Freitag, 26.06.2026 14:00"
     )
     assert format_german_date("2026-06-26") == "Freitag, 26.06.2026"
+    assert format_short_german_date("2026-06-26") == "26.06."
 
 
 def test_hourly_chart_uses_three_hour_ticks_and_centered_day_label() -> None:
@@ -50,7 +53,7 @@ def test_hourly_chart_uses_three_hour_ticks_and_centered_day_label() -> None:
         "21:00",
     ]
     assert len(figure.layout.annotations) == 1
-    assert figure.layout.annotations[0].text == "Freitag, 26.06.2026"
+    assert figure.layout.annotations[0].text == "26.06."
     assert figure.layout.annotations[0].xref == "x"
     assert figure.layout.annotations[0].yref == "paper"
 
@@ -315,6 +318,62 @@ def test_hourly_energy_chart_compact_mode_reduces_labels_and_day_annotations() -
     assert len(desktop.layout.annotations) > 0
     assert len(compact.layout.annotations) == 0
     assert compact.layout.margin.b < desktop.layout.margin.b
+
+
+def test_compact_time_axis_for_seven_days_uses_only_short_dates() -> None:
+    tick_values = [
+        datetime(2026, 6, 25, 0),
+        datetime(2026, 6, 26, 12),
+    ]
+
+    assert time_axis_tick_text(tick_values, compact=True, view_days=7) == [
+        "25.06.",
+        "26.06.",
+    ]
+
+
+def test_compact_three_day_chart_uses_time_ticks_and_short_day_annotations() -> None:
+    first_utc = datetime(2026, 6, 26, 0, tzinfo=timezone.utc)
+    rows = [
+        {
+            "timestamp": (first_utc + timedelta(hours=hour)).isoformat(),
+            "predicted_power_kw": 1.0,
+        }
+        for hour in range(72)
+    ]
+
+    figure = create_hourly_energy_chart(
+        rows,
+        tick_interval_hours=tick_interval_for_view_days(3, compact=True),
+        compact=True,
+        view_days=3,
+    )
+
+    assert "06:00" in list(figure.layout.xaxis.ticktext)
+    assert all("." in annotation.text for annotation in figure.layout.annotations)
+    assert all("2026" not in annotation.text for annotation in figure.layout.annotations)
+
+
+def test_compact_seven_day_chart_has_no_day_annotation_row() -> None:
+    first_utc = datetime(2026, 6, 26, 0, tzinfo=timezone.utc)
+    rows = [
+        {
+            "timestamp": (first_utc + timedelta(hours=hour)).isoformat(),
+            "predicted_power_kw": 1.0,
+        }
+        for hour in range(7 * 24)
+    ]
+
+    figure = create_hourly_energy_chart(
+        rows,
+        tick_interval_hours=tick_interval_for_view_days(7, compact=True),
+        compact=True,
+        view_days=7,
+    )
+
+    assert all(":" not in label for label in figure.layout.xaxis.ticktext)
+    assert all(label.endswith(".") for label in figure.layout.xaxis.ticktext)
+    assert len(figure.layout.annotations) == 0
 
 
 def test_hourly_chart_can_add_component_curves() -> None:

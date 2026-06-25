@@ -79,6 +79,16 @@ with st.sidebar:
         value=share_url,
         help="Diesen Link kannst du kopieren. Er enthält nur den Projektcode, kein Passwort.",
     )
+with st.sidebar:
+    expert_mode = st.toggle(
+        "Expertenmodus",
+        help="Zeigt technische Eingaben, Wetterdetails und API-Rohdaten an.",
+    )
+    compact_chart = st.checkbox(
+        "Kompakte mobile Darstellung",
+        value=False,
+        help="Reduziert Achsenbeschriftungen und Abstände für Handy/Hochformat.",
+    )
 normalized_session_id = stable_session_id_from_code(normalized_user_code)
 st.session_state["user_code"] = normalized_user_code
 st.session_state["session_id"] = str(normalized_session_id)
@@ -182,11 +192,6 @@ if updated_name:
 updated_plant_name = st.session_state.pop("updated_plant_name", None)
 if updated_plant_name:
     st.success(f"Kraftwerk „{updated_plant_name}“ wurde aktualisiert.")
-
-expert_mode = st.toggle(
-    "Expertenmodus",
-    help="Zeigt technische Eingaben, Wetterdetails und API-Rohdaten an.",
-)
 
 management_left, management_right = st.columns(2, gap="large")
 
@@ -972,11 +977,6 @@ if forecast_is_selected:
         index=list(FORECAST_VIEW_DAYS).index("7 Tage"),
         horizontal=True,
     )
-    compact_chart = st.checkbox(
-        "Kompakte mobile Darstellung",
-        value=False,
-        help="Reduziert Achsenbeschriftungen und Abstände für Handy/Hochformat.",
-    )
     view_days = FORECAST_VIEW_DAYS[view_label]
     visible_forecast = filter_forecast_rows_by_days(pv_forecast, view_days)
     # Plotly-Relayoutdaten aus manuellem Zoom werden in Streamlit nicht
@@ -1008,7 +1008,7 @@ else:
     st.info("Wähle ein Prognoseziel aus und berechne seine Prognose.")
 
 if expert_mode:
-    with st.expander("Technische Details anzeigen", expanded=False):
+    with st.expander("Technische Daten", expanded=True):
         if forecast_target_type == "Einzelanlage":
             selected_installation = installations_by_id[selected_installation_id]
             st.write(
@@ -1133,11 +1133,7 @@ if expert_mode:
         elif st.session_state.get("weather_details_error"):
             st.warning(st.session_state["weather_details_error"])
 
-        if False and (
-            forecast_target_type == "Einzelanlage"
-            and weather_forecast
-            and weather_installation_id == selected_installation_id
-        ):
+        if False:
             weather_table = [
                 {
                     "Zeitpunkt": format_german_datetime(row["timestamp"]),

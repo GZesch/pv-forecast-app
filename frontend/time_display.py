@@ -49,6 +49,11 @@ def format_german_date(value: str | date) -> str:
     return f"{GERMAN_WEEKDAYS[parsed.weekday()]}, {parsed:%d.%m.%Y}"
 
 
+def format_short_german_date(value: str | date) -> str:
+    parsed = parse_date(value)
+    return f"{parsed:%d.%m.}"
+
+
 def format_german_datetime(value: str | datetime) -> str:
     parsed = parse_timestamp(value)
     return f"{GERMAN_WEEKDAYS[parsed.weekday()]}, {parsed:%d.%m.%Y %H:%M}"
@@ -250,7 +255,21 @@ def _tick_interval_hours(chart_times: list[datetime]) -> int:
     return 6
 
 
-def _apply_time_axis(
+def time_axis_tick_text(
+    tick_values: list[datetime], *, compact: bool = False, view_days: int | None = None
+) -> list[str]:
+    if compact and (view_days or 0) >= 7:
+        return [value.strftime("%d.%m.") for value in tick_values]
+    return [value.strftime("%H:%M") for value in tick_values]
+
+
+def should_show_day_annotations(*, compact: bool = False, view_days: int | None = None) -> bool:
+    if not compact:
+        return True
+    return view_days == 3
+
+
+def apply_time_axis(
     figure: go.Figure,
     chart_times: list[datetime],
     *,
@@ -267,12 +286,9 @@ def _apply_time_axis(
         for chart_time in chart_times
         if chart_time.minute == 0 and chart_time.hour % interval == 0
     ]
-    if compact and (view_days or 0) >= 7:
-        tick_text = [value.strftime("%d.%m") for value in tick_values]
-    elif compact and (view_days or 0) >= 3:
-        tick_text = [value.strftime("%d.%m %H:%M") for value in tick_values]
-    else:
-        tick_text = [value.strftime("%H:%M") for value in tick_values]
+    tick_text = time_axis_tick_text(
+        tick_values, compact=compact, view_days=view_days
+    )
 
     figure.update_xaxes(
         tickmode="array",
@@ -287,7 +303,7 @@ def _apply_time_axis(
         tickfont={"size": 12 if compact else 14},
     )
 
-    if compact:
+    if not should_show_day_annotations(compact=compact, view_days=view_days):
         return
 
     times_by_day: dict[date, list[datetime]] = defaultdict(list)
@@ -302,7 +318,7 @@ def _apply_time_axis(
             y=-0.22,
             xref="x",
             yref="paper",
-            text=format_german_date(day),
+            text=format_short_german_date(day),
             showarrow=False,
             xanchor="center",
             yanchor="top",
@@ -366,7 +382,7 @@ def create_hourly_chart(
             )
         )
 
-    _apply_time_axis(figure, chart_times, tick_interval_hours=3)
+    apply_time_axis(figure, chart_times, tick_interval_hours=3)
 
     figure.update_layout(
         height=430,
@@ -456,7 +472,7 @@ def create_hourly_energy_chart(
             )
         )
 
-    _apply_time_axis(
+    apply_time_axis(
         figure,
         chart_times,
         tick_interval_hours=tick_interval_hours,

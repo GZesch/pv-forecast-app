@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from frontend.weather_display import (
     available_weather_variables,
     create_weather_chart,
@@ -120,6 +122,28 @@ def test_weather_chart_tick_density_and_compact_labels_follow_view_days() -> Non
     assert len(desktop.layout.xaxis.ticktext) > len(compact.layout.xaxis.ticktext)
     assert "01:00" in list(desktop.layout.xaxis.ticktext)
     assert "01:00" not in list(compact.layout.xaxis.ticktext)
+
+
+def test_weather_chart_reuses_compact_seven_day_date_labels() -> None:
+    first_utc = datetime(2026, 6, 26, 0, tzinfo=timezone.utc)
+    rows = [
+        {
+            "timestamp": (first_utc + timedelta(hours=hour)).isoformat(),
+            "direct_radiation": 100.0,
+        }
+        for hour in range(7 * 24)
+    ]
+
+    figure = create_weather_chart(
+        rows,
+        selected_variables=["direct_radiation"],
+        view_days=7,
+        compact=True,
+    )
+
+    assert all(":" not in label for label in figure.layout.xaxis.ticktext)
+    assert all(label.endswith(".") for label in figure.layout.xaxis.ticktext)
+    assert len(figure.layout.annotations) == 0
 
 
 def test_default_weather_source_prefers_largest_component_energy() -> None:
