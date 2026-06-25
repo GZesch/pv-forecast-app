@@ -141,14 +141,20 @@ def test_weather_chart_reuses_compact_seven_day_noon_labels_and_date_annotations
         compact=True,
     )
 
-    assert set(figure.layout.xaxis.ticktext) == {"12:00"}
-    assert len(figure.layout.annotations) >= 7
-    assert all(annotation.text.endswith(".") for annotation in figure.layout.annotations)
+    assert all(label == "" for label in figure.layout.xaxis.ticktext)
+    date_annotations = [
+        annotation
+        for annotation in figure.layout.annotations
+        if annotation.text.endswith(".")
+    ]
+    assert len(date_annotations) >= 7
+    assert all(annotation.x.hour == 12 for annotation in date_annotations)
+    assert any(annotation.text == "Strahlung [W/m²]" for annotation in figure.layout.annotations)
     assert figure.layout.yaxis.title.text == ""
     assert figure.layout.yaxis2.title.text == ""
-    assert figure.layout.yaxis.ticklabelposition == "inside"
-    assert figure.layout.yaxis2.ticklabelposition == "inside"
-    assert figure.layout.margin.l < 12
+    assert figure.layout.yaxis.ticklabelposition == "outside"
+    assert figure.layout.yaxis2.ticklabelposition == "outside"
+    assert figure.layout.margin.l <= 30
 
 
 def test_default_weather_source_prefers_largest_component_energy() -> None:

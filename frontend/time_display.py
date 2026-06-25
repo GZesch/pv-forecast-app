@@ -174,9 +174,7 @@ def tick_interval_for_view_days(days: int, *, compact: bool = False) -> int:
     if compact:
         if days <= 1:
             return 3
-        if days <= 3:
-            return 12
-        return 24
+        return 12
     if days <= 1:
         return 1
     if days <= 3:
@@ -258,6 +256,8 @@ def _tick_interval_hours(chart_times: list[datetime]) -> int:
 def time_axis_tick_text(
     tick_values: list[datetime], *, compact: bool = False, view_days: int | None = None
 ) -> list[str]:
+    if compact and (view_days or 0) in (3, 7):
+        return ["" for _ in tick_values]
     return [value.strftime("%H:%M") for value in tick_values]
 
 
@@ -277,11 +277,11 @@ def apply_time_axis(
         return
 
     interval = tick_interval_hours or _tick_interval_hours(chart_times)
-    if compact and (view_days or 0) >= 7:
+    if compact and (view_days or 0) in (3, 7):
         tick_values = [
             chart_time
             for chart_time in chart_times
-            if chart_time.minute == 0 and chart_time.hour == 12
+            if chart_time.minute == 0 and chart_time.hour % 12 == 0
         ]
     else:
         tick_values = [
@@ -314,8 +314,15 @@ def apply_time_axis(
         times_by_day[chart_time.date()].append(chart_time)
 
     for day, day_times in sorted(times_by_day.items()):
+        noon_values = [
+            day_time
+            for day_time in day_times
+            if day_time.hour == 12 and day_time.minute == 0
+        ]
+        if compact and view_days in (3, 7) and not noon_values:
+            continue
         first, last = min(day_times), max(day_times)
-        center = first + (last - first) / 2
+        center = noon_values[0] if compact and view_days in (3, 7) else first + (last - first) / 2
         figure.add_annotation(
             x=center,
             y=-0.22,
@@ -490,7 +497,7 @@ def create_hourly_energy_chart(
         bargap=0.12,
         height=420 if compact else 480,
         margin=(
-            {"l": 8, "r": 8, "t": 6, "b": 58}
+            {"l": 26, "r": 12, "t": 30, "b": 58}
             if compact
             else {"l": 44, "r": 24, "t": 18, "b": 116}
         ),
@@ -514,9 +521,21 @@ def create_hourly_energy_chart(
         gridcolor="rgba(120, 120, 120, 0.16)",
         gridwidth=0.6,
         title={"font": {"size": 1 if compact else 18}},
-        tickfont={"size": 11 if compact else 15},
-        ticklabelposition="inside" if compact else "outside",
+        tickfont={"size": 12 if compact else 15},
+        ticklabelposition="outside",
         zerolinecolor="rgba(120, 120, 120, 0.25)",
         rangemode="tozero",
     )
+    if compact:
+        figure.add_annotation(
+            x=0,
+            y=1.08,
+            xref="paper",
+            yref="paper",
+            text="Ertrag [kWh]",
+            showarrow=False,
+            xanchor="left",
+            yanchor="bottom",
+            font={"size": 12, "color": "#4b5563"},
+        )
     return figure

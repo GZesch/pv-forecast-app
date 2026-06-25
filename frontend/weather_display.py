@@ -154,7 +154,7 @@ def create_weather_chart(
         title={"text": ""},
         height=400 if compact else 450,
         margin=(
-            {"l": 8, "r": 8, "t": 6, "b": 58}
+            {"l": 26, "r": 30, "t": 36, "b": 58}
             if compact
             else {"l": 44, "r": 56, "t": 18, "b": 96}
         ),
@@ -164,8 +164,8 @@ def create_weather_chart(
                 "text": "" if compact else primary_title,
                 "font": {"size": 1 if compact else 18},
             },
-            "tickfont": {"size": 10 if compact else 15},
-            "ticklabelposition": "inside" if compact else "outside",
+            "tickfont": {"size": 11 if compact else 15},
+            "ticklabelposition": "outside",
             "gridcolor": "rgba(120, 120, 120, 0.16)",
             "gridwidth": 0.6,
             "rangemode": "tozero",
@@ -175,8 +175,8 @@ def create_weather_chart(
                 "text": "" if compact else "Wetterwerte",
                 "font": {"size": 1 if compact else 18},
             },
-            "tickfont": {"size": 10 if compact else 15},
-            "ticklabelposition": "inside" if compact else "outside",
+            "tickfont": {"size": 11 if compact else 15},
+            "ticklabelposition": "outside",
             "overlaying": "y",
             "side": "right",
             "showgrid": False,
@@ -194,4 +194,28 @@ def create_weather_chart(
         plot_bgcolor="white",
         font={"size": 13 if compact else 15},
     )
+    if compact:
+        figure.add_annotation(
+            x=0,
+            y=1.08,
+            xref="paper",
+            yref="paper",
+            text=primary_title,
+            showarrow=False,
+            xanchor="left",
+            yanchor="bottom",
+            font={"size": 12, "color": "#4b5563"},
+        )
+        if has_weather and has_radiation:
+            figure.add_annotation(
+                x=1,
+                y=1.08,
+                xref="paper",
+                yref="paper",
+                text="Wetterwerte",
+                showarrow=False,
+                xanchor="right",
+                yanchor="bottom",
+                font={"size": 12, "color": "#4b5563"},
+            )
     return figure
