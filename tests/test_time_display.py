@@ -326,6 +326,8 @@ def test_hourly_energy_chart_compact_mode_reduces_labels_and_day_annotations() -
     assert [annotation.text for annotation in compact.layout.annotations] == [
         "Ertrag [kWh]"
     ]
+    assert compact.layout.annotations[0].y == 1.04
+    assert compact.layout.margin.t >= 54
     assert compact.layout.margin.b < desktop.layout.margin.b
 
 
@@ -422,6 +424,7 @@ def test_compact_seven_day_chart_uses_visible_noon_date_tick_labels() -> None:
     assert figure.layout.yaxis.ticklabelposition == "outside"
     assert figure.layout.margin.l <= 8
     assert figure.layout.margin.r <= 4
+    assert figure.layout.margin.t >= 54
 
 
 def test_hourly_chart_can_add_component_curves() -> None:

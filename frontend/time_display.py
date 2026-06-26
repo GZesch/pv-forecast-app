@@ -517,7 +517,7 @@ def create_hourly_energy_chart(
         bargap=0.12,
         height=420 if compact else 480,
         margin=(
-            {"l": 8, "r": 4, "t": 30, "b": 58}
+            {"l": 8, "r": 4, "t": 54, "b": 58}
             if compact
             else {"l": 44, "r": 24, "t": 18, "b": 116}
         ),
@@ -549,7 +549,7 @@ def create_hourly_energy_chart(
     if compact:
         figure.add_annotation(
             x=0,
-            y=1.08,
+            y=1.04,
             xref="paper",
             yref="paper",
             text="Ertrag [kWh]",
