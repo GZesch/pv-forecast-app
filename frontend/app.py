@@ -44,19 +44,7 @@ st.set_page_config(page_title="PV Forecast", page_icon="☀️", layout="wide")
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 REQUEST_TIMEOUT = 5.0
-dark_mode = st.get_option("theme.base") == "dark"
-control_background = (
-    "rgba(17, 24, 39, 0.94)" if dark_mode else "rgba(255, 255, 255, 0.96)"
-)
-control_border = (
-    "rgba(229, 231, 235, 0.18)" if dark_mode else "rgba(49, 51, 63, 0.12)"
-)
-control_shadow = (
-    "0 2px 14px rgba(0, 0, 0, 0.35)"
-    if dark_mode
-    else "0 2px 10px rgba(49, 51, 63, 0.08)"
-)
-control_text = "#e5e7eb" if dark_mode else "#111827"
+chart_dark_mode = True
 
 if "user_code" not in st.session_state:
     st.session_state["user_code"] = project_code_from_query_params(st.query_params)
@@ -102,18 +90,20 @@ st.html(
         right: 1rem;
         bottom: max(1rem, env(safe-area-inset-bottom));
         z-index: 999999;
-        background: %(control_background)s;
+        background: color-mix(in srgb, var(--secondary-background-color) 92%, transparent);
         backdrop-filter: blur(8px);
-        border: 1px solid %(control_border)s;
+        border: 1px solid color-mix(in srgb, var(--text-color) 14%, transparent);
         border-radius: 8px;
-        box-shadow: %(control_shadow)s;
-        color: %(control_text)s;
+        box-shadow: 0 2px 14px rgba(0, 0, 0, 0.22);
+        color: var(--text-color);
         padding: 0.25rem 0.5rem;
         width: max-content;
         max-width: calc(100vw - 2rem);
     }
-    .st-key-view-mode-controls * {
-        color: %(control_text)s;
+    .st-key-view-mode-controls label,
+    .st-key-view-mode-controls p,
+    .st-key-view-mode-controls span {
+        color: var(--text-color) !important;
     }
     .st-key-view-mode-controls [data-testid="stCaptionContainer"] {
         display: none;
@@ -153,12 +143,6 @@ st.html(
     }
     </style>
     """
-    % {
-        "control_background": control_background,
-        "control_border": control_border,
-        "control_shadow": control_shadow,
-        "control_text": control_text,
-    }
 )
 with st.container(key="view-mode-controls"):
     st.caption("Ansicht")
@@ -1114,7 +1098,7 @@ if forecast_is_selected:
             ),
             compact=compact_chart,
             view_days=view_days,
-            dark=dark_mode,
+            dark=chart_dark_mode,
         ),
         use_container_width=True,
         config={"displayModeBar": False},
@@ -1237,7 +1221,7 @@ if expert_mode:
                             selected_variables=selected_weather_keys,
                             view_days=weather_view_days,
                             compact=compact_chart,
-                            dark=dark_mode,
+                            dark=chart_dark_mode,
                         ),
                         use_container_width=True,
                         config={"displayModeBar": False},
