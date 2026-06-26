@@ -78,16 +78,23 @@ with st.sidebar:
         value=share_url,
         help="Diesen Link kannst du kopieren. Er enthält nur den Projektcode, kein Passwort.",
     )
-with st.sidebar:
-    expert_mode = st.toggle(
-        "Expertenmodus",
-        help="Zeigt technische Eingaben, Wetterdetails und API-Rohdaten an.",
-    )
-    compact_chart = st.toggle(
-        "Kompakte Ansicht",
-        value=False,
-        help="Reduziert Achsenbeschriftungen und Abstände, besonders für Handy/Hochformat.",
-    )
+with st.container(key="view-mode-controls"):
+    st.caption("Ansicht")
+    with st.container(horizontal=True, gap="medium"):
+        expert_mode = st.toggle(
+            "Expertenmodus",
+            key="expert_mode",
+            help="Zeigt technische Eingaben, Wetterdetails und API-Rohdaten an.",
+        )
+        compact_chart = st.toggle(
+            "Kompakte Ansicht",
+            key="compact_chart",
+            value=False,
+            help=(
+                "Reduziert Achsenbeschriftungen und Abstände, "
+                "besonders für Handy/Hochformat."
+            ),
+        )
 
 if compact_chart:
     st.html(
