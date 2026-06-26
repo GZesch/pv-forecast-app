@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 try:
     from .time_display import (
         apply_time_axis,
+        chart_theme,
         filter_forecast_rows_by_days,
         format_german_datetime,
         parse_timestamp,
@@ -13,6 +14,7 @@ try:
 except ImportError:
     from time_display import (
         apply_time_axis,
+        chart_theme,
         filter_forecast_rows_by_days,
         format_german_datetime,
         parse_timestamp,
@@ -30,6 +32,24 @@ WEATHER_VARIABLES = {
     "wind_speed_10m": ("Wind 10 m", "Windgeschwindigkeit [km/h]", "weather", "km/h"),
 }
 DEFAULT_WEATHER_KEYS = ("direct_radiation", "diffuse_radiation", "cloud_cover")
+LIGHT_WEATHER_COLORS = {
+    "direct_radiation": "#7dd3fc",
+    "diffuse_radiation": "#0369a1",
+    "shortwave_radiation": "#0ea5e9",
+    "direct_normal_irradiance": "#38bdf8",
+    "cloud_cover": "#fca5a5",
+    "temperature_2m": "#f97316",
+    "wind_speed_10m": "#22c55e",
+}
+DARK_WEATHER_COLORS = {
+    "direct_radiation": "#7dd3fc",
+    "diffuse_radiation": "#38bdf8",
+    "shortwave_radiation": "#67e8f9",
+    "direct_normal_irradiance": "#bae6fd",
+    "cloud_cover": "#fda4af",
+    "temperature_2m": "#fdba74",
+    "wind_speed_10m": "#86efac",
+}
 
 
 def available_weather_variables(
@@ -96,7 +116,10 @@ def create_weather_chart(
     selected_variables: list[str],
     view_days: int,
     compact: bool = False,
+    dark: bool = False,
 ) -> go.Figure:
+    theme = chart_theme(dark=dark)
+    variable_colors = DARK_WEATHER_COLORS if dark else LIGHT_WEATHER_COLORS
     rows = filter_forecast_rows_by_days(weather_rows, view_days)
     chart_times = [
         parse_timestamp(row["timestamp"]).replace(tzinfo=None) for row in rows
@@ -125,6 +148,7 @@ def create_weather_chart(
                 mode="lines",
                 name=label,
                 yaxis=yaxis,
+                line={"color": variable_colors.get(key)},
                 customdata=[format_german_datetime(row["timestamp"]) for row in rows],
                 hovertemplate=(
                     "%{customdata}<br>"
@@ -149,6 +173,7 @@ def create_weather_chart(
         tick_interval_hours=tick_interval_for_view_days(view_days, compact=compact),
         compact=compact,
         view_days=view_days,
+        dark=dark,
     )
     figure.update_layout(
         title={"text": ""},
@@ -167,32 +192,36 @@ def create_weather_chart(
         yaxis={
             "title": {
                 "text": "" if compact else primary_title,
-                "font": {"size": 1 if compact else 18},
+                "font": {"size": 1 if compact else 18, "color": theme["text"]},
             },
             "anchor": "free" if compact else "x",
             "position": 0 if compact else None,
             "side": "left",
-            "tickfont": {"size": 11 if compact else 15},
+            "tickfont": {"size": 11 if compact else 15, "color": theme["text"]},
             "ticklabelposition": "inside" if compact else "outside",
-            "gridcolor": "rgba(120, 120, 120, 0.16)",
+            "gridcolor": theme["grid"],
             "gridwidth": 0.6,
             "rangemode": "tozero",
             "automargin": False if compact else True,
+            "zerolinecolor": theme["zero"],
+            "color": theme["text"],
         },
         yaxis2={
             "title": {
                 "text": "" if compact else "Wetterwerte",
-                "font": {"size": 1 if compact else 18},
+                "font": {"size": 1 if compact else 18, "color": theme["text"]},
             },
             "anchor": "free" if compact else "x",
             "position": 1 if compact else None,
-            "tickfont": {"size": 11 if compact else 15},
+            "tickfont": {"size": 11 if compact else 15, "color": theme["text"]},
             "ticklabelposition": "inside" if compact else "outside",
             "overlaying": "y",
             "side": "right",
             "showgrid": False,
             "visible": has_weather and has_radiation,
             "automargin": False if compact else True,
+            "zerolinecolor": theme["zero"],
+            "color": theme["text"],
         },
         legend={
             "orientation": "h",
@@ -200,12 +229,16 @@ def create_weather_chart(
             "y": 1.24 if compact else 1.02,
             "xanchor": "left" if compact else "right",
             "x": 0 if compact else 1,
-            "font": {"size": 12 if compact else 14},
-            "bgcolor": "rgba(255,255,255,0.78)" if compact else "rgba(0,0,0,0)",
+            "font": {"size": 12 if compact else 14, "color": theme["text"]},
+            "bgcolor": theme["legend"] if compact else "rgba(0,0,0,0)",
         },
-        hoverlabel={"font_size": 13 if compact else 14},
-        plot_bgcolor="white",
-        font={"size": 13 if compact else 15},
+        hoverlabel={
+            "bgcolor": theme["hover"],
+            "font": {"size": 13 if compact else 14, "color": theme["text"]},
+        },
+        paper_bgcolor=theme["paper"],
+        plot_bgcolor=theme["plot"],
+        font={"size": 13 if compact else 15, "color": theme["text"]},
     )
     if compact:
         figure.add_annotation(
@@ -217,7 +250,7 @@ def create_weather_chart(
             showarrow=False,
             xanchor="left",
             yanchor="bottom",
-            font={"size": 12, "color": "#4b5563"},
+            font={"size": 12, "color": theme["muted_text"]},
         )
         if has_weather and has_radiation:
             figure.add_annotation(
@@ -229,6 +262,6 @@ def create_weather_chart(
                 showarrow=False,
                 xanchor="right",
                 yanchor="bottom",
-                font={"size": 12, "color": "#4b5563"},
+                font={"size": 12, "color": theme["muted_text"]},
             )
     return figure

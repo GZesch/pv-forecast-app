@@ -44,6 +44,19 @@ st.set_page_config(page_title="PV Forecast", page_icon="☀️", layout="wide")
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 REQUEST_TIMEOUT = 5.0
+dark_mode = st.get_option("theme.base") == "dark"
+control_background = (
+    "rgba(17, 24, 39, 0.94)" if dark_mode else "rgba(255, 255, 255, 0.96)"
+)
+control_border = (
+    "rgba(229, 231, 235, 0.18)" if dark_mode else "rgba(49, 51, 63, 0.12)"
+)
+control_shadow = (
+    "0 2px 14px rgba(0, 0, 0, 0.35)"
+    if dark_mode
+    else "0 2px 10px rgba(49, 51, 63, 0.08)"
+)
+control_text = "#e5e7eb" if dark_mode else "#111827"
 
 if "user_code" not in st.session_state:
     st.session_state["user_code"] = project_code_from_query_params(st.query_params)
@@ -89,14 +102,18 @@ st.html(
         right: 1rem;
         bottom: max(1rem, env(safe-area-inset-bottom));
         z-index: 999999;
-        background: rgba(255, 255, 255, 0.96);
+        background: %(control_background)s;
         backdrop-filter: blur(8px);
-        border: 1px solid rgba(49, 51, 63, 0.12);
+        border: 1px solid %(control_border)s;
         border-radius: 8px;
-        box-shadow: 0 2px 10px rgba(49, 51, 63, 0.08);
+        box-shadow: %(control_shadow)s;
+        color: %(control_text)s;
         padding: 0.25rem 0.5rem;
         width: max-content;
         max-width: calc(100vw - 2rem);
+    }
+    .st-key-view-mode-controls * {
+        color: %(control_text)s;
     }
     .st-key-view-mode-controls [data-testid="stCaptionContainer"] {
         display: none;
@@ -117,10 +134,10 @@ st.html(
             padding-bottom: 6rem;
         }
         .st-key-view-mode-controls {
-            left: 50%;
+            left: 50%%;
             right: auto;
             bottom: max(1.25rem, env(safe-area-inset-bottom));
-            transform: translateX(-50%);
+            transform: translateX(-50%%);
             max-width: calc(100vw - 2rem);
             width: max-content;
             padding: 0.15rem 0.35rem;
@@ -136,6 +153,12 @@ st.html(
     }
     </style>
     """
+    % {
+        "control_background": control_background,
+        "control_border": control_border,
+        "control_shadow": control_shadow,
+        "control_text": control_text,
+    }
 )
 with st.container(key="view-mode-controls"):
     st.caption("Ansicht")
@@ -1091,6 +1114,7 @@ if forecast_is_selected:
             ),
             compact=compact_chart,
             view_days=view_days,
+            dark=dark_mode,
         ),
         use_container_width=True,
         config={"displayModeBar": False},
@@ -1213,6 +1237,7 @@ if expert_mode:
                             selected_variables=selected_weather_keys,
                             view_days=weather_view_days,
                             compact=compact_chart,
+                            dark=dark_mode,
                         ),
                         use_container_width=True,
                         config={"displayModeBar": False},

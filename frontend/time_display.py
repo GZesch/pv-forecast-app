@@ -22,6 +22,30 @@ FORECAST_VIEW_DAYS = {
     "3 Tage": 3,
     "7 Tage": 7,
 }
+LIGHT_CHART_THEME = {
+    "paper": "rgba(0,0,0,0)",
+    "plot": "white",
+    "text": "#111827",
+    "muted_text": "#4b5563",
+    "grid": "rgba(120, 120, 120, 0.16)",
+    "zero": "rgba(120, 120, 120, 0.25)",
+    "legend": "rgba(255,255,255,0.78)",
+    "hover": "white",
+}
+DARK_CHART_THEME = {
+    "paper": "rgba(0,0,0,0)",
+    "plot": "#111827",
+    "text": "#e5e7eb",
+    "muted_text": "#9ca3af",
+    "grid": "rgba(229, 231, 235, 0.16)",
+    "zero": "rgba(229, 231, 235, 0.34)",
+    "legend": "rgba(17,24,39,0.88)",
+    "hover": "#1f2937",
+}
+
+
+def chart_theme(*, dark: bool = False) -> dict[str, str]:
+    return DARK_CHART_THEME if dark else LIGHT_CHART_THEME
 
 
 def parse_timestamp(value: str | datetime) -> datetime:
@@ -274,9 +298,11 @@ def apply_time_axis(
     tick_interval_hours: int | None = None,
     compact: bool = False,
     view_days: int | None = None,
+    dark: bool = False,
 ) -> None:
     if not chart_times:
         return
+    theme = chart_theme(dark=dark)
 
     interval = tick_interval_hours or _tick_interval_hours(chart_times)
     compact_one_day = compact and (view_days or 0) <= 1
@@ -304,10 +330,11 @@ def apply_time_axis(
         tickangle=0,
         ticks="outside",
         showgrid=not (compact_one_day or compact_multi_day),
-        gridcolor="rgba(120, 120, 120, 0.16)",
+        gridcolor=theme["grid"],
         gridwidth=0.6,
         title=None,
-        tickfont={"size": 12 if compact else 14},
+        tickfont={"size": 12 if compact else 14, "color": theme["text"]},
+        color=theme["text"],
     )
 
     if compact_one_day or compact_multi_day:
@@ -322,7 +349,7 @@ def apply_time_axis(
                     y1=1,
                     xref="x",
                     yref="paper",
-                    line={"color": "rgba(120, 120, 120, 0.16)", "width": 0.6},
+                    line={"color": theme["grid"], "width": 0.6},
                     layer="below",
                 )
 
@@ -352,7 +379,7 @@ def apply_time_axis(
             showarrow=False,
             xanchor="center",
             yanchor="top",
-            font={"size": 14, "color": "#4b5563"},
+            font={"size": 14, "color": theme["muted_text"]},
         )
 
 
@@ -443,8 +470,10 @@ def create_hourly_energy_chart(
     tick_interval_hours: int | None = None,
     compact: bool = False,
     view_days: int | None = None,
+    dark: bool = False,
 ) -> go.Figure:
     """Create the main PV chart as interval energy bars."""
+    theme = chart_theme(dark=dark)
     components = sort_component_series_by_energy(component_series or [])
     if stack_components and components:
         energy_rows = sum_hourly_energy_series(components)
@@ -508,6 +537,7 @@ def create_hourly_energy_chart(
         tick_interval_hours=tick_interval_hours,
         compact=compact,
         view_days=view_days,
+        dark=dark,
     )
     figure.update_layout(
         title={
@@ -524,27 +554,32 @@ def create_hourly_energy_chart(
         hovermode="x unified",
         showlegend=bool(stack_components and components),
         yaxis_title="" if compact else "Ertrag [kWh]",
-        font={"size": 13 if compact else 15},
+        font={"size": 13 if compact else 15, "color": theme["text"]},
         legend={
             "orientation": "h",
             "yanchor": "bottom",
             "y": 1.02,
             "xanchor": "right",
             "x": 1,
-            "font": {"size": 12 if compact else 14},
-            "bgcolor": "rgba(255,255,255,0.65)",
+            "font": {"size": 12 if compact else 14, "color": theme["text"]},
+            "bgcolor": theme["legend"],
         },
-        hoverlabel={"font_size": 13 if compact else 14},
-        plot_bgcolor="white",
+        hoverlabel={
+            "bgcolor": theme["hover"],
+            "font": {"size": 13 if compact else 14, "color": theme["text"]},
+        },
+        paper_bgcolor=theme["paper"],
+        plot_bgcolor=theme["plot"],
     )
     figure.update_yaxes(
-        gridcolor="rgba(120, 120, 120, 0.16)",
+        gridcolor=theme["grid"],
         gridwidth=0.6,
-        title={"font": {"size": 1 if compact else 18}},
-        tickfont={"size": 12 if compact else 15},
+        title={"font": {"size": 1 if compact else 18, "color": theme["text"]}},
+        tickfont={"size": 12 if compact else 15, "color": theme["text"]},
         ticklabelposition="outside",
-        zerolinecolor="rgba(120, 120, 120, 0.25)",
+        zerolinecolor=theme["zero"],
         rangemode="tozero",
+        color=theme["text"],
     )
     if compact:
         figure.add_annotation(
@@ -556,6 +591,6 @@ def create_hourly_energy_chart(
             showarrow=False,
             xanchor="left",
             yanchor="bottom",
-            font={"size": 12, "color": "#4b5563"},
+            font={"size": 12, "color": theme["muted_text"]},
         )
     return figure
