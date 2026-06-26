@@ -124,7 +124,7 @@ def test_weather_chart_tick_density_and_compact_labels_follow_view_days() -> Non
     assert "01:00" not in list(compact.layout.xaxis.ticktext)
 
 
-def test_weather_chart_reuses_compact_seven_day_noon_labels_and_date_annotations() -> None:
+def test_weather_chart_reuses_compact_seven_day_noon_date_tick_labels() -> None:
     first_utc = datetime(2026, 6, 26, 0, tzinfo=timezone.utc)
     rows = [
         {
@@ -141,15 +141,24 @@ def test_weather_chart_reuses_compact_seven_day_noon_labels_and_date_annotations
         compact=True,
     )
 
-    assert all(label == "" for label in figure.layout.xaxis.ticktext)
-    date_annotations = [
-        annotation
-        for annotation in figure.layout.annotations
-        if annotation.text.endswith(".")
+    tick_labels = list(figure.layout.xaxis.ticktext)
+    tick_values = list(figure.layout.xaxis.tickvals)
+    noon_labels = [
+        label
+        for label, value in zip(tick_labels, tick_values, strict=True)
+        if value.hour == 12
     ]
-    assert len(date_annotations) >= 7
-    assert all(annotation.x.hour == 12 for annotation in date_annotations)
-    assert any(annotation.text == "Strahlung [W/m²]" for annotation in figure.layout.annotations)
+    assert all(label for label in tick_labels)
+    assert all(value.hour in (0, 12) for value in tick_values)
+    assert len(noon_labels) >= 7
+    assert all(label.endswith(".") for label in noon_labels)
+    assert not any(
+        annotation.text.endswith(".") for annotation in figure.layout.annotations
+    )
+    assert any(
+        annotation.text == "Strahlung [W/m²]"
+        for annotation in figure.layout.annotations
+    )
     assert figure.layout.yaxis.title.text == ""
     assert figure.layout.yaxis2.title.text == ""
     assert figure.layout.yaxis.ticklabelposition == "outside"

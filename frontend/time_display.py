@@ -257,11 +257,18 @@ def time_axis_tick_text(
     tick_values: list[datetime], *, compact: bool = False, view_days: int | None = None
 ) -> list[str]:
     if compact and (view_days or 0) in (3, 7):
-        return ["" for _ in tick_values]
+        return [
+            format_short_german_date(value.date())
+            if value.hour == 12
+            else value.strftime("%H:%M")
+            for value in tick_values
+        ]
     return [value.strftime("%H:%M") for value in tick_values]
 
 
 def should_show_day_annotations(*, compact: bool = False, view_days: int | None = None) -> bool:
+    if compact:
+        return False
     return view_days in (3, 7)
 
 
