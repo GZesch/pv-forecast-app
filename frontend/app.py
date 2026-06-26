@@ -82,52 +82,56 @@ st.html(
     """
     <style>
     .block-container {
-        padding-top: 6.25rem;
+        padding-top: 3.5rem;
     }
     .st-key-view-mode-controls {
         position: fixed;
-        top: 3.25rem;
-        left: max(1rem, 5vw);
-        right: max(1rem, 5vw);
+        top: 0.5rem;
+        right: 1rem;
+        left: auto;
         z-index: 1000;
         background: rgba(255, 255, 255, 0.96);
         backdrop-filter: blur(8px);
-        border-bottom: 1px solid rgba(49, 51, 63, 0.12);
-        padding: 0.25rem 0 0.45rem;
+        border: 1px solid rgba(49, 51, 63, 0.12);
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(49, 51, 63, 0.08);
+        padding: 0.25rem 0.5rem;
+        width: max-content;
+        max-width: calc(100vw - 2rem);
     }
     .st-key-view-mode-controls [data-testid="stCaptionContainer"] {
-        margin-bottom: 0.1rem;
+        display: none;
     }
     .st-key-view-mode-controls [data-testid="stHorizontalBlock"] {
         align-items: center;
         display: flex;
         flex-wrap: nowrap;
-        gap: 1.25rem;
-        row-gap: 0.25rem;
+        gap: 0.9rem;
         width: max-content;
+        max-width: calc(100vw - 3rem);
     }
     .st-key-view-mode-controls [data-testid="stHorizontalBlock"] > div {
         flex: 0 0 auto;
     }
     @media (max-width: 640px) {
         .block-container {
-            padding-top: 4.75rem;
+            padding-top: 2.75rem;
         }
         .st-key-view-mode-controls {
-            top: 3.1rem;
-            left: 5.25rem;
-            right: 3.75rem;
-            border-bottom: 0;
-            padding: 0;
+            top: 0.25rem;
+            right: 3.25rem;
+            left: 4.75rem;
+            max-width: none;
+            width: auto;
+            padding: 0.15rem 0.35rem;
             font-size: 0.8rem;
-        }
-        .st-key-view-mode-controls [data-testid="stCaptionContainer"] {
-            display: none;
         }
         .st-key-view-mode-controls [data-testid="stHorizontalBlock"] {
             flex-direction: column;
             align-items: flex-start;
-            gap: 0;
+            gap: 0.05rem;
+            max-width: none;
+            width: 100%;
         }
     }
     </style>
