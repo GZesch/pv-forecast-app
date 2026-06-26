@@ -95,15 +95,18 @@ if compact_chart:
         <style>
         @media (max-width: 640px) {
             .block-container {
-                padding-left: 0.25rem !important;
-                padding-right: 0.25rem !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
             }
             [data-testid="stPlotlyChart"] {
                 width: 100vw !important;
                 max-width: 100vw !important;
                 margin-left: calc(50% - 50vw);
             }
-            [data-testid="stPlotlyChart"] > div {
+            [data-testid="stPlotlyChart"] > div,
+            [data-testid="stPlotlyChart"] .js-plotly-plot,
+            [data-testid="stPlotlyChart"] .plot-container,
+            [data-testid="stPlotlyChart"] .svg-container {
                 width: 100% !important;
                 max-width: 100vw !important;
             }

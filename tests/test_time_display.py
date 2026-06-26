@@ -160,7 +160,7 @@ def test_tick_interval_matches_selected_view_days() -> None:
     assert tick_interval_for_view_days(1) == 1
     assert tick_interval_for_view_days(3) == 3
     assert tick_interval_for_view_days(7) == 6
-    assert tick_interval_for_view_days(1, compact=True) == 3
+    assert tick_interval_for_view_days(1, compact=True) == 6
     assert tick_interval_for_view_days(3, compact=True) == 12
     assert tick_interval_for_view_days(7, compact=True) == 12
 
@@ -312,6 +312,16 @@ def test_hourly_energy_chart_compact_mode_reduces_labels_and_day_annotations() -
     )
 
     assert len(desktop.layout.xaxis.ticktext) > len(compact.layout.xaxis.ticktext)
+    assert list(compact.layout.xaxis.ticktext) == [
+        "06:00",
+        "12:00",
+        "18:00",
+        "00:00",
+    ]
+    grid_lines = list(compact.layout.shapes)
+    assert len(grid_lines) >= 8
+    assert all(shape.x0.hour % 3 == 0 for shape in grid_lines)
+    assert compact.layout.xaxis.showgrid is False
     assert len(desktop.layout.annotations) == 0
     assert [annotation.text for annotation in compact.layout.annotations] == [
         "Ertrag [kWh]"
@@ -410,7 +420,8 @@ def test_compact_seven_day_chart_uses_visible_noon_date_tick_labels() -> None:
     )
     assert figure.layout.yaxis.title.text == ""
     assert figure.layout.yaxis.ticklabelposition == "outside"
-    assert figure.layout.margin.l <= 30
+    assert figure.layout.margin.l <= 8
+    assert figure.layout.margin.r <= 4
 
 
 def test_hourly_chart_can_add_component_curves() -> None:

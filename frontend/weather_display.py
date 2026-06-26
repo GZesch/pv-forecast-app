@@ -154,10 +154,11 @@ def create_weather_chart(
         title={"text": ""},
         height=400 if compact else 450,
         margin=(
-            {"l": 4, "r": 4, "t": 112, "b": 58}
+            {"l": 0, "r": 0, "t": 112, "b": 58}
             if compact
             else {"l": 44, "r": 56, "t": 18, "b": 96}
         ),
+        autosize=True,
         hovermode="x unified",
         yaxis={
             "title": {

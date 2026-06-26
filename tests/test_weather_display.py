@@ -167,8 +167,8 @@ def test_weather_chart_reuses_compact_seven_day_noon_date_tick_labels() -> None:
     assert figure.layout.yaxis2.title.text == ""
     assert figure.layout.yaxis.ticklabelposition == "inside"
     assert figure.layout.yaxis2.ticklabelposition == "inside"
-    assert figure.layout.margin.l <= 4
-    assert figure.layout.margin.r <= 4
+    assert figure.layout.margin.l == 0
+    assert figure.layout.margin.r == 0
     assert figure.layout.margin.t >= 100
     assert figure.layout.legend.y > 1.2
 

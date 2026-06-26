@@ -173,7 +173,7 @@ def filter_component_series_by_days(
 def tick_interval_for_view_days(days: int, *, compact: bool = False) -> int:
     if compact:
         if days <= 1:
-            return 3
+            return 6
         return 12
     if days <= 1:
         return 1
@@ -279,6 +279,7 @@ def apply_time_axis(
         return
 
     interval = tick_interval_hours or _tick_interval_hours(chart_times)
+    compact_one_day = compact and (view_days or 0) <= 1
     compact_multi_day = compact and (view_days or 0) in (3, 7)
     if compact_multi_day:
         tick_values = [
@@ -302,16 +303,17 @@ def apply_time_axis(
         ticktext=tick_text,
         tickangle=0,
         ticks="outside",
-        showgrid=not compact_multi_day,
+        showgrid=not (compact_one_day or compact_multi_day),
         gridcolor="rgba(120, 120, 120, 0.16)",
         gridwidth=0.6,
         title=None,
         tickfont={"size": 12 if compact else 14},
     )
 
-    if compact_multi_day:
+    if compact_one_day or compact_multi_day:
+        grid_interval_hours = 3 if compact_one_day else 12
         for chart_time in chart_times:
-            if chart_time.minute == 0 and chart_time.hour % 12 == 0:
+            if chart_time.minute == 0 and chart_time.hour % grid_interval_hours == 0:
                 figure.add_shape(
                     type="line",
                     x0=chart_time,
@@ -515,7 +517,7 @@ def create_hourly_energy_chart(
         bargap=0.12,
         height=420 if compact else 480,
         margin=(
-            {"l": 26, "r": 12, "t": 30, "b": 58}
+            {"l": 8, "r": 4, "t": 30, "b": 58}
             if compact
             else {"l": 44, "r": 24, "t": 18, "b": 116}
         ),
