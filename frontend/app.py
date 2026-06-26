@@ -81,23 +81,29 @@ with st.sidebar:
 st.html(
     """
     <style>
+    .block-container {
+        padding-top: 8.5rem;
+    }
     .st-key-view-mode-controls {
-        position: sticky;
-        top: 0;
+        position: fixed;
+        top: 3.25rem;
+        left: 0;
+        right: 0;
         z-index: 1000;
         background: rgba(255, 255, 255, 0.96);
         backdrop-filter: blur(8px);
         border-bottom: 1px solid rgba(49, 51, 63, 0.12);
-        padding: 0.25rem 0 0.5rem;
+        padding: 0.35rem max(1rem, 5vw) 0.6rem;
     }
     .st-key-view-mode-controls [data-testid="stHorizontalBlock"] {
         flex-wrap: wrap;
         row-gap: 0.25rem;
     }
     @media (max-width: 640px) {
+        .block-container {
+            padding-top: 9.5rem;
+        }
         .st-key-view-mode-controls {
-            margin-left: -1rem;
-            margin-right: -1rem;
             padding-left: 1rem;
             padding-right: 1rem;
         }
