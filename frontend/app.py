@@ -94,12 +94,18 @@ if compact_chart:
         """
         <style>
         @media (max-width: 640px) {
+            .block-container {
+                padding-left: 0.25rem !important;
+                padding-right: 0.25rem !important;
+            }
             [data-testid="stPlotlyChart"] {
-                width: calc(100vw - 0.75rem) !important;
-                margin-left: calc((100% - (100vw - 0.75rem)) / 2);
+                width: 100vw !important;
+                max-width: 100vw !important;
+                margin-left: calc(50% - 50vw);
             }
             [data-testid="stPlotlyChart"] > div {
                 width: 100% !important;
+                max-width: 100vw !important;
             }
         }
         </style>

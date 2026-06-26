@@ -154,7 +154,7 @@ def create_weather_chart(
         title={"text": ""},
         height=400 if compact else 450,
         margin=(
-            {"l": 24, "r": 26, "t": 112, "b": 58}
+            {"l": 4, "r": 4, "t": 112, "b": 58}
             if compact
             else {"l": 44, "r": 56, "t": 18, "b": 96}
         ),
@@ -165,7 +165,7 @@ def create_weather_chart(
                 "font": {"size": 1 if compact else 18},
             },
             "tickfont": {"size": 11 if compact else 15},
-            "ticklabelposition": "outside",
+            "ticklabelposition": "inside" if compact else "outside",
             "gridcolor": "rgba(120, 120, 120, 0.16)",
             "gridwidth": 0.6,
             "rangemode": "tozero",
@@ -176,7 +176,7 @@ def create_weather_chart(
                 "font": {"size": 1 if compact else 18},
             },
             "tickfont": {"size": 11 if compact else 15},
-            "ticklabelposition": "outside",
+            "ticklabelposition": "inside" if compact else "outside",
             "overlaying": "y",
             "side": "right",
             "showgrid": False,
