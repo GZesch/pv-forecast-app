@@ -78,44 +78,6 @@ with st.sidebar:
         value=share_url,
         help="Diesen Link kannst du kopieren. Er enthält nur den Projektcode, kein Passwort.",
     )
-st.html(
-    """
-    <style>
-    .st-key-view-mode-controls {
-        position: sticky;
-        top: 0;
-        z-index: 999;
-        background: rgba(255, 255, 255, 0.96);
-        border-bottom: 1px solid rgba(120, 120, 120, 0.18);
-        margin-bottom: 0.75rem;
-        padding: 0.25rem 0 0.35rem;
-    }
-    .st-key-view-mode-controls [data-testid="stCaptionContainer"] p {
-        margin-bottom: 0;
-    }
-    @supports (backdrop-filter: blur(8px)) {
-        .st-key-view-mode-controls {
-            backdrop-filter: blur(8px);
-        }
-    }
-    @media (max-width: 640px) {
-        .st-key-view-mode-controls {
-            width: 100vw;
-            margin-left: calc(50% - 50vw);
-            padding: 0.35rem 0.75rem 0.45rem;
-            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
-        }
-        .st-key-view-mode-controls [data-testid="stHorizontalBlock"] {
-            flex-wrap: nowrap;
-        }
-        .st-key-view-mode-controls label {
-            white-space: nowrap;
-        }
-    }
-    </style>
-    """
-)
-
 with st.container(key="view-mode-controls"):
     st.caption("Ansicht")
     with st.container(horizontal=True, gap="medium"):
