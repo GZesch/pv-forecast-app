@@ -1044,6 +1044,7 @@ stored_forecast_target_key = st.session_state.get("pv_forecast_target_key")
 forecast_is_selected = (
     bool(pv_forecast) and stored_forecast_target_key == forecast_target_key
 )
+view_label = "7 Tage"
 
 if forecast_is_selected:
     forecast_warning_message = st.session_state.get("pv_forecast_warning")
