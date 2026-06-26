@@ -7,8 +7,10 @@ try:
         apply_time_axis,
         chart_theme,
         filter_forecast_rows_by_days,
+        font_style,
         format_german_datetime,
         parse_timestamp,
+        theme_color,
         tick_interval_for_view_days,
     )
 except ImportError:
@@ -16,8 +18,10 @@ except ImportError:
         apply_time_axis,
         chart_theme,
         filter_forecast_rows_by_days,
+        font_style,
         format_german_datetime,
         parse_timestamp,
+        theme_color,
         tick_interval_for_view_days,
     )
 
@@ -116,7 +120,7 @@ def create_weather_chart(
     selected_variables: list[str],
     view_days: int,
     compact: bool = False,
-    dark: bool = False,
+    dark: bool | None = None,
 ) -> go.Figure:
     theme = chart_theme(dark=dark)
     variable_colors = DARK_WEATHER_COLORS if dark else LIGHT_WEATHER_COLORS
@@ -192,28 +196,28 @@ def create_weather_chart(
         yaxis={
             "title": {
                 "text": "" if compact else primary_title,
-                "font": {"size": 1 if compact else 18, "color": theme["text"]},
+                "font": font_style(1 if compact else 18, theme=theme, dark=dark),
             },
             "anchor": "free" if compact else "x",
             "position": 0 if compact else None,
             "side": "left",
-            "tickfont": {"size": 11 if compact else 15, "color": theme["text"]},
+            "tickfont": font_style(11 if compact else 15, theme=theme, dark=dark),
             "ticklabelposition": "inside" if compact else "outside",
             "gridcolor": theme["grid"],
             "gridwidth": 0.6,
             "rangemode": "tozero",
             "automargin": False if compact else True,
             "zerolinecolor": theme["zero"],
-            "color": theme["text"],
+            "color": theme_color(theme, "text", dark),
         },
         yaxis2={
             "title": {
                 "text": "" if compact else "Wetterwerte",
-                "font": {"size": 1 if compact else 18, "color": theme["text"]},
+                "font": font_style(1 if compact else 18, theme=theme, dark=dark),
             },
             "anchor": "free" if compact else "x",
             "position": 1 if compact else None,
-            "tickfont": {"size": 11 if compact else 15, "color": theme["text"]},
+            "tickfont": font_style(11 if compact else 15, theme=theme, dark=dark),
             "ticklabelposition": "inside" if compact else "outside",
             "overlaying": "y",
             "side": "right",
@@ -221,7 +225,7 @@ def create_weather_chart(
             "visible": has_weather and has_radiation,
             "automargin": False if compact else True,
             "zerolinecolor": theme["zero"],
-            "color": theme["text"],
+            "color": theme_color(theme, "text", dark),
         },
         legend={
             "orientation": "h",
@@ -229,16 +233,16 @@ def create_weather_chart(
             "y": 1.24 if compact else 1.02,
             "xanchor": "left" if compact else "right",
             "x": 0 if compact else 1,
-            "font": {"size": 12 if compact else 14, "color": theme["text"]},
-            "bgcolor": theme["legend"] if compact else "rgba(0,0,0,0)",
+            "font": font_style(12 if compact else 14, theme=theme, dark=dark),
+            "bgcolor": theme_color(theme, "legend", dark) if compact else None,
         },
         hoverlabel={
-            "bgcolor": theme["hover"],
-            "font": {"size": 13 if compact else 14, "color": theme["text"]},
+            "bgcolor": theme_color(theme, "hover", dark),
+            "font": font_style(13 if compact else 14, theme=theme, dark=dark),
         },
-        paper_bgcolor=theme["paper"],
-        plot_bgcolor=theme["plot"],
-        font={"size": 13 if compact else 15, "color": theme["text"]},
+        paper_bgcolor=theme_color(theme, "paper", dark),
+        plot_bgcolor=theme_color(theme, "plot", dark),
+        font=font_style(13 if compact else 15, theme=theme, dark=dark),
     )
     if compact:
         figure.add_annotation(
@@ -250,7 +254,7 @@ def create_weather_chart(
             showarrow=False,
             xanchor="left",
             yanchor="bottom",
-            font={"size": 12, "color": theme["muted_text"]},
+            font=font_style(12, theme=theme, key="muted_text", dark=dark),
         )
         if has_weather and has_radiation:
             figure.add_annotation(
@@ -262,6 +266,6 @@ def create_weather_chart(
                 showarrow=False,
                 xanchor="right",
                 yanchor="bottom",
-                font={"size": 12, "color": theme["muted_text"]},
+                font=font_style(12, theme=theme, key="muted_text", dark=dark),
             )
     return figure

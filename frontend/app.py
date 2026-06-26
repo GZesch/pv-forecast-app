@@ -44,7 +44,6 @@ st.set_page_config(page_title="PV Forecast", page_icon="☀️", layout="wide")
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 REQUEST_TIMEOUT = 5.0
-chart_dark_mode = True
 
 if "user_code" not in st.session_state:
     st.session_state["user_code"] = project_code_from_query_params(st.query_params)
@@ -1098,9 +1097,9 @@ if forecast_is_selected:
             ),
             compact=compact_chart,
             view_days=view_days,
-            dark=chart_dark_mode,
         ),
         use_container_width=True,
+        theme="streamlit",
         config={"displayModeBar": False},
     )
 else:
@@ -1221,9 +1220,9 @@ if expert_mode:
                             selected_variables=selected_weather_keys,
                             view_days=weather_view_days,
                             compact=compact_chart,
-                            dark=chart_dark_mode,
                         ),
                         use_container_width=True,
+                        theme="streamlit",
                         config={"displayModeBar": False},
                     )
                 else:

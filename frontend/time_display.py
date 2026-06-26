@@ -48,6 +48,22 @@ def chart_theme(*, dark: bool = False) -> dict[str, str]:
     return DARK_CHART_THEME if dark else LIGHT_CHART_THEME
 
 
+def theme_color(theme: dict[str, str], key: str, dark: bool | None) -> str | None:
+    if dark is None:
+        return None
+    return theme[key]
+
+
+def font_style(
+    size: int, *, theme: dict[str, str], key: str = "text", dark: bool | None
+) -> dict[str, int | str]:
+    style: dict[str, int | str] = {"size": size}
+    color = theme_color(theme, key, dark)
+    if color is not None:
+        style["color"] = color
+    return style
+
+
 def parse_timestamp(value: str | datetime) -> datetime:
     """Parse an API timestamp and convert it to Europe/Berlin."""
     parsed = (
@@ -298,7 +314,7 @@ def apply_time_axis(
     tick_interval_hours: int | None = None,
     compact: bool = False,
     view_days: int | None = None,
-    dark: bool = False,
+    dark: bool | None = None,
 ) -> None:
     if not chart_times:
         return
@@ -333,8 +349,8 @@ def apply_time_axis(
         gridcolor=theme["grid"],
         gridwidth=0.6,
         title=None,
-        tickfont={"size": 12 if compact else 14, "color": theme["text"]},
-        color=theme["text"],
+        tickfont=font_style(12 if compact else 14, theme=theme, dark=dark),
+        color=theme_color(theme, "text", dark),
     )
 
     if compact_one_day or compact_multi_day:
@@ -379,7 +395,7 @@ def apply_time_axis(
             showarrow=False,
             xanchor="center",
             yanchor="top",
-            font={"size": 14, "color": theme["muted_text"]},
+            font=font_style(14, theme=theme, key="muted_text", dark=dark),
         )
 
 
@@ -470,7 +486,7 @@ def create_hourly_energy_chart(
     tick_interval_hours: int | None = None,
     compact: bool = False,
     view_days: int | None = None,
-    dark: bool = False,
+    dark: bool | None = None,
 ) -> go.Figure:
     """Create the main PV chart as interval energy bars."""
     theme = chart_theme(dark=dark)
@@ -554,32 +570,32 @@ def create_hourly_energy_chart(
         hovermode="x unified",
         showlegend=bool(stack_components and components),
         yaxis_title="" if compact else "Ertrag [kWh]",
-        font={"size": 13 if compact else 15, "color": theme["text"]},
+        font=font_style(13 if compact else 15, theme=theme, dark=dark),
         legend={
             "orientation": "h",
             "yanchor": "bottom",
             "y": 1.02,
             "xanchor": "right",
             "x": 1,
-            "font": {"size": 12 if compact else 14, "color": theme["text"]},
-            "bgcolor": theme["legend"],
+            "font": font_style(12 if compact else 14, theme=theme, dark=dark),
+            "bgcolor": theme_color(theme, "legend", dark),
         },
         hoverlabel={
-            "bgcolor": theme["hover"],
-            "font": {"size": 13 if compact else 14, "color": theme["text"]},
+            "bgcolor": theme_color(theme, "hover", dark),
+            "font": font_style(13 if compact else 14, theme=theme, dark=dark),
         },
-        paper_bgcolor=theme["paper"],
-        plot_bgcolor=theme["plot"],
+        paper_bgcolor=theme_color(theme, "paper", dark),
+        plot_bgcolor=theme_color(theme, "plot", dark),
     )
     figure.update_yaxes(
         gridcolor=theme["grid"],
         gridwidth=0.6,
-        title={"font": {"size": 1 if compact else 18, "color": theme["text"]}},
-        tickfont={"size": 12 if compact else 15, "color": theme["text"]},
+        title={"font": font_style(1 if compact else 18, theme=theme, dark=dark)},
+        tickfont=font_style(12 if compact else 15, theme=theme, dark=dark),
         ticklabelposition="outside",
         zerolinecolor=theme["zero"],
         rangemode="tozero",
-        color=theme["text"],
+        color=theme_color(theme, "text", dark),
     )
     if compact:
         figure.add_annotation(
@@ -591,6 +607,6 @@ def create_hourly_energy_chart(
             showarrow=False,
             xanchor="left",
             yanchor="bottom",
-            font={"size": 12, "color": theme["muted_text"]},
+            font=font_style(12, theme=theme, key="muted_text", dark=dark),
         )
     return figure
