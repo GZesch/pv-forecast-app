@@ -82,13 +82,15 @@ st.html(
     """
     <style>
     .st-key-view-mode-controls {
-        position: sticky;
-        top: 0;
+        position: fixed;
+        top: 0.35rem;
+        right: 0.75rem;
         z-index: 999;
         background: rgba(255, 255, 255, 0.96);
-        border-bottom: 1px solid rgba(120, 120, 120, 0.18);
-        margin-bottom: 0.75rem;
-        padding: 0.25rem 0 0.35rem;
+        border: 1px solid rgba(120, 120, 120, 0.18);
+        border-radius: 0.5rem;
+        box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
+        padding: 0.25rem 0.65rem 0.35rem;
     }
     .st-key-view-mode-controls [data-testid="stCaptionContainer"] p {
         margin-bottom: 0;
@@ -100,10 +102,11 @@ st.html(
     }
     @media (max-width: 640px) {
         .st-key-view-mode-controls {
-            width: 100vw;
-            margin-left: calc(50% - 50vw);
-            padding: 0.35rem 0.75rem 0.45rem;
-            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
+            top: auto;
+            right: 0.5rem;
+            bottom: 0.5rem;
+            max-width: calc(100vw - 1rem);
+            padding: 0.3rem 0.55rem 0.4rem;
         }
         .st-key-view-mode-controls [data-testid="stHorizontalBlock"] {
             flex-wrap: nowrap;
