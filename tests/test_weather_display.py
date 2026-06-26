@@ -149,9 +149,13 @@ def test_weather_chart_reuses_compact_seven_day_noon_date_tick_labels() -> None:
         if value.hour == 12
     ]
     assert all(label for label in tick_labels)
-    assert all(value.hour in (0, 12) for value in tick_values)
+    assert all(value.hour == 12 for value in tick_values)
     assert len(noon_labels) >= 7
     assert all(label.endswith(".") for label in noon_labels)
+    grid_lines = list(figure.layout.shapes)
+    assert len(grid_lines) >= 14
+    assert all(shape.x0.hour in (0, 12) for shape in grid_lines)
+    assert figure.layout.xaxis.showgrid is False
     assert not any(
         annotation.text.endswith(".") for annotation in figure.layout.annotations
     )
@@ -164,6 +168,8 @@ def test_weather_chart_reuses_compact_seven_day_noon_date_tick_labels() -> None:
     assert figure.layout.yaxis.ticklabelposition == "outside"
     assert figure.layout.yaxis2.ticklabelposition == "outside"
     assert figure.layout.margin.l <= 30
+    assert figure.layout.margin.t >= 100
+    assert figure.layout.legend.y > 1.2
 
 
 def test_default_weather_source_prefers_largest_component_energy() -> None:

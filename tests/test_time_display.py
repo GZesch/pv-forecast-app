@@ -321,17 +321,17 @@ def test_hourly_energy_chart_compact_mode_reduces_labels_and_day_annotations() -
 
 def test_compact_time_axis_for_multi_day_views_labels_noon_with_dates() -> None:
     tick_values = [
-        datetime(2026, 6, 25, 0),
+        datetime(2026, 6, 25, 12),
         datetime(2026, 6, 26, 12),
     ]
 
     assert time_axis_tick_text(tick_values, compact=True, view_days=3) == [
-        "00:00",
-        "26.06.",
+        "06.25.",
+        "06.26.",
     ]
     assert time_axis_tick_text(tick_values, compact=True, view_days=7) == [
-        "00:00",
-        "26.06.",
+        "06.25.",
+        "06.26.",
     ]
 
 
@@ -356,13 +356,15 @@ def test_compact_three_day_chart_uses_visible_noon_date_tick_labels() -> None:
     tick_values = list(figure.layout.xaxis.tickvals)
     assert tick_labels
     assert all(label for label in tick_labels)
-    assert all(value.hour in (0, 12) for value in tick_values)
+    assert all(value.hour == 12 for value in tick_values)
     assert all(
-        label == f"{value:%d.%m.}"
+        label == f"{value:%m.%d.}"
         for label, value in zip(tick_labels, tick_values, strict=True)
-        if value.hour == 12
     )
-    assert "00:00" in tick_labels
+    grid_lines = list(figure.layout.shapes)
+    assert len(grid_lines) >= 6
+    assert all(shape.x0.hour in (0, 12) for shape in grid_lines)
+    assert figure.layout.xaxis.showgrid is False
     assert not any(
         annotation.text.endswith(".") for annotation in figure.layout.annotations
     )
@@ -393,9 +395,13 @@ def test_compact_seven_day_chart_uses_visible_noon_date_tick_labels() -> None:
         if value.hour == 12
     ]
     assert all(label for label in tick_labels)
-    assert all(value.hour in (0, 12) for value in tick_values)
+    assert all(value.hour == 12 for value in tick_values)
     assert len(noon_labels) >= 7
     assert all(label.endswith(".") and "2026" not in label for label in noon_labels)
+    grid_lines = list(figure.layout.shapes)
+    assert len(grid_lines) >= 14
+    assert all(shape.x0.hour in (0, 12) for shape in grid_lines)
+    assert figure.layout.xaxis.showgrid is False
     assert not any(
         annotation.text.endswith(".") for annotation in figure.layout.annotations
     )

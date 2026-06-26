@@ -154,7 +154,7 @@ def create_weather_chart(
         title={"text": ""},
         height=400 if compact else 450,
         margin=(
-            {"l": 26, "r": 30, "t": 36, "b": 58}
+            {"l": 24, "r": 26, "t": 112, "b": 58}
             if compact
             else {"l": 44, "r": 56, "t": 18, "b": 96}
         ),
@@ -185,10 +185,11 @@ def create_weather_chart(
         legend={
             "orientation": "h",
             "yanchor": "bottom",
-            "y": 1.02,
-            "xanchor": "right",
-            "x": 1,
+            "y": 1.24 if compact else 1.02,
+            "xanchor": "left" if compact else "right",
+            "x": 0 if compact else 1,
             "font": {"size": 12 if compact else 14},
+            "bgcolor": "rgba(255,255,255,0.78)" if compact else "rgba(0,0,0,0)",
         },
         hoverlabel={"font_size": 13 if compact else 14},
         plot_bgcolor="white",

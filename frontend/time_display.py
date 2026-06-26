@@ -257,12 +257,7 @@ def time_axis_tick_text(
     tick_values: list[datetime], *, compact: bool = False, view_days: int | None = None
 ) -> list[str]:
     if compact and (view_days or 0) in (3, 7):
-        return [
-            format_short_german_date(value.date())
-            if value.hour == 12
-            else value.strftime("%H:%M")
-            for value in tick_values
-        ]
+        return [value.strftime("%m.%d.") for value in tick_values]
     return [value.strftime("%H:%M") for value in tick_values]
 
 
@@ -284,11 +279,12 @@ def apply_time_axis(
         return
 
     interval = tick_interval_hours or _tick_interval_hours(chart_times)
-    if compact and (view_days or 0) in (3, 7):
+    compact_multi_day = compact and (view_days or 0) in (3, 7)
+    if compact_multi_day:
         tick_values = [
             chart_time
             for chart_time in chart_times
-            if chart_time.minute == 0 and chart_time.hour % 12 == 0
+            if chart_time.minute == 0 and chart_time.hour == 12
         ]
     else:
         tick_values = [
@@ -306,12 +302,27 @@ def apply_time_axis(
         ticktext=tick_text,
         tickangle=0,
         ticks="outside",
-        showgrid=True,
+        showgrid=not compact_multi_day,
         gridcolor="rgba(120, 120, 120, 0.16)",
         gridwidth=0.6,
         title=None,
         tickfont={"size": 12 if compact else 14},
     )
+
+    if compact_multi_day:
+        for chart_time in chart_times:
+            if chart_time.minute == 0 and chart_time.hour % 12 == 0:
+                figure.add_shape(
+                    type="line",
+                    x0=chart_time,
+                    x1=chart_time,
+                    y0=0,
+                    y1=1,
+                    xref="x",
+                    yref="paper",
+                    line={"color": "rgba(120, 120, 120, 0.16)", "width": 0.6},
+                    layer="below",
+                )
 
     if not should_show_day_annotations(compact=compact, view_days=view_days):
         return

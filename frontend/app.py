@@ -88,6 +88,23 @@ with st.sidebar:
         value=False,
         help="Reduziert Achsenbeschriftungen und Abstände, besonders für Handy/Hochformat.",
     )
+
+if compact_chart:
+    st.html(
+        """
+        <style>
+        @media (max-width: 640px) {
+            [data-testid="stPlotlyChart"] {
+                width: calc(100vw - 0.75rem) !important;
+                margin-left: calc((100% - (100vw - 0.75rem)) / 2);
+            }
+            [data-testid="stPlotlyChart"] > div {
+                width: 100% !important;
+            }
+        }
+        </style>
+        """
+    )
 normalized_session_id = stable_session_id_from_code(normalized_user_code)
 st.session_state["user_code"] = normalized_user_code
 st.session_state["session_id"] = str(normalized_session_id)
