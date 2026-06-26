@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
 from frontend.time_display import (
+    component_color,
     create_hourly_energy_chart,
     create_hourly_chart,
     filter_component_series_by_days,
@@ -206,6 +207,10 @@ def test_hourly_energy_chart_stacks_component_bars_for_plant() -> None:
     assert figure.layout.barmode == "stack"
     assert [trace.name for trace in figure.data] == ["Ost", "West"]
     assert [trace.type for trace in figure.data] == ["bar", "bar"]
+    assert [trace.marker.color for trace in figure.data] == [
+        component_color(0),
+        component_color(1),
+    ]
     assert sum(trace.y[0] for trace in figure.data) == 3.5
 
 

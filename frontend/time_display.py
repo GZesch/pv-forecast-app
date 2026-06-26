@@ -42,10 +42,24 @@ DARK_CHART_THEME = {
     "legend": "rgba(17,24,39,0.88)",
     "hover": "#1f2937",
 }
+COMPONENT_COLORS = (
+    "#f59e0b",
+    "#fbbf24",
+    "#d97706",
+    "#38bdf8",
+    "#0ea5e9",
+    "#14b8a6",
+    "#64748b",
+    "#94a3b8",
+)
 
 
 def chart_theme(*, dark: bool = False) -> dict[str, str]:
     return DARK_CHART_THEME if dark else LIGHT_CHART_THEME
+
+
+def component_color(index: int) -> str:
+    return COMPONENT_COLORS[index % len(COMPONENT_COLORS)]
 
 
 def theme_color(theme: dict[str, str], key: str, dark: bool | None) -> str | None:
@@ -503,7 +517,7 @@ def create_hourly_energy_chart(
     figure = go.Figure()
 
     if stack_components and components:
-        for component in components:
+        for index, component in enumerate(components):
             component_name = str(component.get("name", "Einzelanlage"))
             component_rows = forecast_rows_to_hourly_energy(component.get("hourly", []))
             figure.add_trace(
@@ -524,8 +538,9 @@ def create_hourly_energy_chart(
                         + ": %{y:.2f} kWh<br>"
                         "Gesamt: %{customdata[1]:.2f} kWh<extra></extra>"
                     ),
+                    marker_color=component_color(index),
                     marker_line_width=0,
-                    opacity=0.86,
+                    opacity=0.9,
                 )
             )
     else:
