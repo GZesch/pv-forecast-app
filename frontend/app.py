@@ -82,14 +82,13 @@ st.html(
     """
     <style>
     .block-container {
-        padding-top: 3.5rem;
+        padding-bottom: 5rem;
     }
     .st-key-view-mode-controls {
         position: fixed;
-        top: 0.5rem;
         right: 1rem;
-        left: auto;
-        z-index: 1000;
+        bottom: max(1rem, env(safe-area-inset-bottom));
+        z-index: 999999;
         background: rgba(255, 255, 255, 0.96);
         backdrop-filter: blur(8px);
         border: 1px solid rgba(49, 51, 63, 0.12);
@@ -106,7 +105,7 @@ st.html(
         align-items: center;
         display: flex;
         flex-wrap: nowrap;
-        gap: 0.9rem;
+        gap: 0.75rem;
         width: max-content;
         max-width: calc(100vw - 3rem);
     }
@@ -115,14 +114,15 @@ st.html(
     }
     @media (max-width: 640px) {
         .block-container {
-            padding-top: 2.75rem;
+            padding-bottom: 6rem;
         }
         .st-key-view-mode-controls {
-            top: 0.25rem;
-            right: 3.25rem;
-            left: 4.75rem;
-            max-width: none;
-            width: auto;
+            left: 50%;
+            right: auto;
+            bottom: max(1.25rem, env(safe-area-inset-bottom));
+            transform: translateX(-50%);
+            max-width: calc(100vw - 2rem);
+            width: max-content;
             padding: 0.15rem 0.35rem;
             font-size: 0.8rem;
         }
@@ -130,8 +130,8 @@ st.html(
             flex-direction: column;
             align-items: flex-start;
             gap: 0.05rem;
-            max-width: none;
-            width: 100%;
+            max-width: calc(100vw - 3rem);
+            width: max-content;
         }
     }
     </style>
