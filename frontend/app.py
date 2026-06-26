@@ -78,6 +78,33 @@ with st.sidebar:
         value=share_url,
         help="Diesen Link kannst du kopieren. Er enthält nur den Projektcode, kein Passwort.",
     )
+st.html(
+    """
+    <style>
+    .st-key-view-mode-controls {
+        position: sticky;
+        top: 0;
+        z-index: 1000;
+        background: rgba(255, 255, 255, 0.96);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid rgba(49, 51, 63, 0.12);
+        padding: 0.25rem 0 0.5rem;
+    }
+    .st-key-view-mode-controls [data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap;
+        row-gap: 0.25rem;
+    }
+    @media (max-width: 640px) {
+        .st-key-view-mode-controls {
+            margin-left: -1rem;
+            margin-right: -1rem;
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+    }
+    </style>
+    """
+)
 with st.container(key="view-mode-controls"):
     st.caption("Ansicht")
     with st.container(horizontal=True, gap="medium"):
