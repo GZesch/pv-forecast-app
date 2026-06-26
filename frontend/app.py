@@ -82,30 +82,52 @@ st.html(
     """
     <style>
     .block-container {
-        padding-top: 8.5rem;
+        padding-top: 6.25rem;
     }
     .st-key-view-mode-controls {
         position: fixed;
         top: 3.25rem;
-        left: 0;
-        right: 0;
+        left: max(1rem, 5vw);
+        right: max(1rem, 5vw);
         z-index: 1000;
         background: rgba(255, 255, 255, 0.96);
         backdrop-filter: blur(8px);
         border-bottom: 1px solid rgba(49, 51, 63, 0.12);
-        padding: 0.35rem max(1rem, 5vw) 0.6rem;
+        padding: 0.25rem 0 0.45rem;
+    }
+    .st-key-view-mode-controls [data-testid="stCaptionContainer"] {
+        margin-bottom: 0.1rem;
     }
     .st-key-view-mode-controls [data-testid="stHorizontalBlock"] {
-        flex-wrap: wrap;
+        align-items: center;
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 1.25rem;
         row-gap: 0.25rem;
+        width: max-content;
+    }
+    .st-key-view-mode-controls [data-testid="stHorizontalBlock"] > div {
+        flex: 0 0 auto;
     }
     @media (max-width: 640px) {
         .block-container {
-            padding-top: 9.5rem;
+            padding-top: 4.75rem;
         }
         .st-key-view-mode-controls {
-            padding-left: 1rem;
-            padding-right: 1rem;
+            top: 3.1rem;
+            left: 5.25rem;
+            right: 3.75rem;
+            border-bottom: 0;
+            padding: 0;
+            font-size: 0.8rem;
+        }
+        .st-key-view-mode-controls [data-testid="stCaptionContainer"] {
+            display: none;
+        }
+        .st-key-view-mode-controls [data-testid="stHorizontalBlock"] {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0;
         }
     }
     </style>
