@@ -171,6 +171,14 @@ def test_weather_chart_reuses_compact_seven_day_noon_date_tick_labels() -> None:
     assert figure.layout.margin.r == 0
     assert figure.layout.margin.t >= 100
     assert figure.layout.legend.y > 1.2
+    assert list(figure.layout.xaxis.domain) == [0, 1]
+    assert figure.layout.xaxis.automargin is False
+    assert figure.layout.yaxis.anchor == "free"
+    assert figure.layout.yaxis.position == 0
+    assert figure.layout.yaxis.automargin is False
+    assert figure.layout.yaxis2.anchor == "free"
+    assert figure.layout.yaxis2.position == 1
+    assert figure.layout.yaxis2.automargin is False
 
 
 def test_default_weather_source_prefers_largest_component_energy() -> None:
