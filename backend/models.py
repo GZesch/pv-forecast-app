@@ -89,6 +89,7 @@ class PVForecastResponse(BaseModel):
     hourly: list[PVForecastRow]
     daily: list[DailyEnergyYield]
     metrics: PVForecastMetrics
+    warning: str | None = None
 
 
 class ForecastHistoryRun(BaseModel):

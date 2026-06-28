@@ -21,3 +21,38 @@ FROM base AS frontend
 EXPOSE 8501
 CMD ["uv", "run", "--no-sync", "streamlit", "run", "frontend/app.py", "--server.address=0.0.0.0", "--server.port=8501"]
 
+FROM node:24-alpine AS web-dependencies
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+
+RUN corepack enable && corepack prepare pnpm@11.7.0 --activate
+
+WORKDIR /app/web
+
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+FROM web-dependencies AS web-builder
+
+ARG NEXT_PUBLIC_SITE_URL=http://preview.localhost
+ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
+
+COPY web/ ./
+RUN pnpm build
+
+FROM node:24-alpine AS web
+
+ENV NODE_ENV=production \
+    HOSTNAME=0.0.0.0 \
+    PORT=3000
+
+WORKDIR /app
+
+COPY --from=web-builder --chown=node:node /app/web/.next/standalone ./
+COPY --from=web-builder --chown=node:node /app/web/.next/static ./.next/static
+
+USER node
+
+EXPOSE 3000
+CMD ["node", "server.js"]
