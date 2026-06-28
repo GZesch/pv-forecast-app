@@ -43,6 +43,7 @@ Für eine andere Preview-Adresse in `.env` eine vollständige URL setzen:
 ```dotenv
 SITE_ADDRESS=:80
 PREVIEW_SITE_ADDRESS=http://preview.localhost
+PV_FORECAST_URL=http://localhost
 ```
 
 Die Preview-Adresse wird beim Build in die statischen Metadaten übernommen.
@@ -52,6 +53,11 @@ Nach einer Änderung deshalb `web` neu bauen und Caddy aktualisieren:
 docker compose build web
 docker compose up -d web caddy
 ```
+
+`PV_FORECAST_URL` ist die öffentliche Adresse des bestehenden
+Streamlit-Rechners. Next.js verwendet sie ausschließlich für den temporären
+PV-Forecast-Link; Änderungen an dieser Adresse erfordern ebenfalls einen Neubau
+des `web`-Images.
 
 Manuelle lokale Prüfung:
 

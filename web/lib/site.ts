@@ -90,7 +90,7 @@ export const calculators = [
       "Schätze den zu erwartenden PV-Ertrag anhand von Standort, Ausrichtung und Wetterdaten.",
     href: "/rechner/pv-forecast",
     icon: "forecast" as IconName,
-    status: "In Vorbereitung",
+    status: "Im bisherigen Bereich",
   },
   {
     title: "PV-Wirtschaftlichkeit",

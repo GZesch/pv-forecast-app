@@ -46,3 +46,9 @@ werden:
 docker compose build web
 docker compose up -d web caddy
 ```
+
+Der PV-Forecast verweist während der Übergangszeit auf die bestehende
+Streamlit-Anwendung. Das Linkziel wird in der Root-`.env` mit
+`PV_FORECAST_URL` konfiguriert und beim Build als
+`NEXT_PUBLIC_PV_FORECAST_URL` übernommen. Der Link öffnet sich in einem neuen
+Tab; die übrigen Rechner-Platzhalter bleiben unverändert.

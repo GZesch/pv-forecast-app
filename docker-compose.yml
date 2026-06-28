@@ -46,6 +46,7 @@ services:
       target: web
       args:
         NEXT_PUBLIC_SITE_URL: ${PREVIEW_SITE_ADDRESS:-http://preview.localhost}
+        NEXT_PUBLIC_PV_FORECAST_URL: ${PV_FORECAST_URL:-http://localhost}
     expose:
       - "3000"
     healthcheck:

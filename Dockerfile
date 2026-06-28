@@ -36,7 +36,9 @@ RUN pnpm install --frozen-lockfile
 FROM web-dependencies AS web-builder
 
 ARG NEXT_PUBLIC_SITE_URL=http://preview.localhost
+ARG NEXT_PUBLIC_PV_FORECAST_URL=http://localhost
 ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
+ENV NEXT_PUBLIC_PV_FORECAST_URL=$NEXT_PUBLIC_PV_FORECAST_URL
 
 COPY web/ ./
 RUN pnpm build
