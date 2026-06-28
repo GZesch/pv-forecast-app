@@ -17,7 +17,8 @@ die weiter unten dokumentierten `uv`-Befehle verwendet werden.
 
 Danach sind die Dienste erreichbar:
 
-- App: <http://localhost>
+- App (weiterhin Streamlit): <http://localhost>
+- Next.js-Preview: <http://preview.localhost>
 - API-Dokumentation über Caddy: <http://localhost/api/docs>
 - Health Check über Caddy: <http://localhost/api/health>
 
@@ -26,6 +27,64 @@ Beenden mit:
 ```bash
 docker compose down
 ```
+
+### Getrennte Next.js-Preview
+
+Caddy bedient zwei voneinander getrennte Adressen: `SITE_ADDRESS` bleibt die
+öffentliche Streamlit-Hauptadresse, `PREVIEW_SITE_ADDRESS` leitet ausschließlich
+an den internen Next.js-Dienst `web:3000` weiter. Lokal verwendet die Preview
+den Standardwert `http://preview.localhost`. Falls das Betriebssystem diesen
+reservierten `.localhost`-Namen nicht selbst auflöst, muss in der lokalen
+Hosts-Datei `127.0.0.1 preview.localhost` ergänzt werden. Es werden keine
+zusätzlichen Host-Ports geöffnet.
+
+Für eine andere Preview-Adresse in `.env` eine vollständige URL setzen:
+
+```dotenv
+SITE_ADDRESS=:80
+PREVIEW_SITE_ADDRESS=http://preview.localhost
+```
+
+Die Preview-Adresse wird beim Build in die statischen Metadaten übernommen.
+Nach einer Änderung deshalb `web` neu bauen und Caddy aktualisieren:
+
+```bash
+docker compose build web
+docker compose up -d web caddy
+```
+
+Manuelle lokale Prüfung:
+
+```bash
+curl http://localhost/
+curl http://preview.localhost/
+curl http://preview.localhost/methodik
+curl http://localhost/api/health
+```
+
+Die Namensauflösung kann vorab geprüft werden:
+
+```powershell
+Resolve-DnsName preview.localhost
+```
+
+Für einen einmaligen Test ohne Hosts-Datei kann curl die Auflösung explizit
+vorgeben:
+
+```powershell
+curl.exe --resolve preview.localhost:80:127.0.0.1 http://preview.localhost/
+```
+
+Die Preview lässt sich ohne Auswirkung auf Streamlit mit
+`docker compose stop web` deaktivieren; die Preview-Adresse antwortet dann nicht
+mehr erfolgreich, Hauptseite und API bleiben verfügbar. Mit
+`docker compose up -d web` wird sie wieder aktiviert.
+
+Bei einer späteren, ausdrücklich freigegebenen Umschaltung wird im
+`SITE_ADDRESS`-Block des Caddyfiles nur das abschließende Standard-Routing von
+`frontend:8501` auf `web:3000` geändert. Die `/api/*`-, Swagger- und
+OAuth-Weiterleitungen bleiben dabei bestehen. Dieser Umschaltvorgang ist in der
+aktuellen Preview-Konfiguration noch nicht vorgenommen.
 
 Die DuckDB-Datei liegt auf dem Host unter `./database/pv_forecast.duckdb` und
 bleibt bei Container-Neubauten sowie `docker compose down` erhalten. Dieses

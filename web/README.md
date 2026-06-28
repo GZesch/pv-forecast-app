@@ -27,3 +27,22 @@ pnpm start
 Für korrekte absolute URLs in `sitemap.xml` und `robots.txt` wird beim späteren
 Deployment `NEXT_PUBLIC_SITE_URL` auf die öffentliche HTTPS-Adresse gesetzt.
 Lokal fällt die Anwendung auf `http://localhost:3000` zurück.
+
+## Docker-Preview
+
+Im gemeinsamen Compose-Setup läuft dieses Frontend als interner Dienst `web`.
+Nur Caddy erreicht Port 3000; ein Host-Port wird nicht veröffentlicht. Die
+Vorschau verwendet lokal standardmäßig `http://preview.localhost`, während
+`http://localhost` weiterhin das bestehende Streamlit-Frontend zeigt. Falls der
+lokale Resolver den reservierten `.localhost`-Namen nicht auflöst, muss
+`preview.localhost` in der Hosts-Datei auf `127.0.0.1` gesetzt werden.
+
+`PREVIEW_SITE_ADDRESS` aus der Root-`.env` wird beim Image-Build als
+`NEXT_PUBLIC_SITE_URL` gesetzt. Dadurch verwenden Canonicals, `sitemap.xml` und
+`robots.txt` die Preview-Adresse. Nach einer Änderung muss das Image neu gebaut
+werden:
+
+```bash
+docker compose build web
+docker compose up -d web caddy
+```

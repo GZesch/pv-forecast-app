@@ -40,10 +40,31 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        NEXT_PUBLIC_SITE_URL: ${PREVIEW_SITE_ADDRESS:-http://preview.localhost}
+    expose:
+      - "3000"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then(response => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
   caddy:
     image: caddy:2.8-alpine
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      PREVIEW_SITE_ADDRESS: ${PREVIEW_SITE_ADDRESS:-http://preview.localhost}
     ports:
       - "80:80"
       - "443:443"
@@ -55,6 +76,7 @@ services:
     depends_on:
       - frontend
       - backend
+      - web
     restart: unless-stopped
 
 volumes:
