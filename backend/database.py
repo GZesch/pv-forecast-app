@@ -44,14 +44,58 @@ def initialize_database() -> None:
             """
             CREATE TABLE IF NOT EXISTS forecast_runs (
                 id UUID PRIMARY KEY,
-                installation_id UUID NOT NULL,
+                installation_id UUID,
+                target_type TEXT,
+                target_id UUID,
                 created_at TIMESTAMPTZ NOT NULL,
                 forecast_start TIMESTAMPTZ NOT NULL,
                 forecast_end TIMESTAMPTZ NOT NULL,
+                hourly_json TEXT,
                 daily_energy_json TEXT NOT NULL,
                 peak_power_kw DOUBLE NOT NULL,
-                peak_timestamp TIMESTAMPTZ NOT NULL
+                peak_timestamp TIMESTAMPTZ NOT NULL,
+                source TEXT
             )
+            """
+        )
+        forecast_run_info = connection.execute(
+            "PRAGMA table_info('forecast_runs')"
+        ).fetchall()
+        forecast_run_columns = {row[1] for row in forecast_run_info}
+        if "target_type" not in forecast_run_columns:
+            connection.execute(
+                "ALTER TABLE forecast_runs ADD COLUMN target_type TEXT"
+            )
+        if "target_id" not in forecast_run_columns:
+            connection.execute(
+                "ALTER TABLE forecast_runs ADD COLUMN target_id UUID"
+            )
+        if "hourly_json" not in forecast_run_columns:
+            connection.execute(
+                "ALTER TABLE forecast_runs ADD COLUMN hourly_json TEXT"
+            )
+        if "source" not in forecast_run_columns:
+            connection.execute(
+                "ALTER TABLE forecast_runs ADD COLUMN source TEXT"
+            )
+        installation_column = next(
+            row for row in forecast_run_info if row[1] == "installation_id"
+        )
+        if installation_column[3]:
+            connection.execute(
+                "DROP INDEX IF EXISTS forecast_runs_installation_idx"
+            )
+            connection.execute(
+                "ALTER TABLE forecast_runs ALTER COLUMN installation_id DROP NOT NULL"
+            )
+        connection.execute(
+            """
+            UPDATE forecast_runs
+            SET
+                target_type = coalesce(target_type, 'installation'),
+                target_id = coalesce(target_id, installation_id),
+                source = coalesce(source, 'fresh')
+            WHERE target_type IS NULL OR target_id IS NULL OR source IS NULL
             """
         )
         connection.execute(
@@ -68,6 +112,12 @@ def initialize_database() -> None:
             """
             CREATE INDEX IF NOT EXISTS forecast_runs_installation_idx
             ON forecast_runs (installation_id, created_at)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS forecast_runs_target_idx
+            ON forecast_runs (target_type, target_id, created_at)
             """
         )
         connection.execute(
@@ -326,13 +376,21 @@ def delete_installation(installation_id: UUID, session_id: UUID) -> bool:
 
 
 def save_forecast_run(
-    installation_id: UUID, forecast: PVForecastResponse
+    target_id: UUID,
+    forecast: PVForecastResponse,
+    *,
+    target_type: str = "installation",
+    source: str = "fresh",
 ) -> UUID:
     """Persist one complete forecast run and all of its hourly points."""
     if not forecast.hourly:
         raise ForecastPersistenceError(
             "Eine leere PV-Prognose kann nicht gespeichert werden."
         )
+    if target_type not in {"installation", "plant"}:
+        raise ValueError("target_type must be installation or plant")
+    if source not in {"fresh", "cached"}:
+        raise ValueError("source must be fresh or cached")
 
     run_id = uuid4()
     created_at = datetime.now(timezone.utc)
@@ -342,6 +400,11 @@ def save_forecast_run(
         [item.model_dump(mode="json") for item in forecast.daily],
         ensure_ascii=False,
     )
+    hourly_json = json.dumps(
+        [item.model_dump(mode="json") for item in forecast.hourly],
+        ensure_ascii=False,
+    )
+    installation_id = target_id if target_type == "installation" else None
 
     try:
         with duckdb.connect(str(get_database_path())) as connection:
@@ -350,20 +413,24 @@ def save_forecast_run(
                 connection.execute(
                     """
                     INSERT INTO forecast_runs (
-                        id, installation_id, created_at, forecast_start,
-                        forecast_end, daily_energy_json, peak_power_kw,
-                        peak_timestamp
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        id, installation_id, target_type, target_id, created_at,
+                        forecast_start, forecast_end, hourly_json,
+                        daily_energy_json, peak_power_kw, peak_timestamp, source
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         run_id,
                         installation_id,
+                        target_type,
+                        target_id,
                         created_at,
                         forecast_start,
                         forecast_end,
+                        hourly_json,
                         daily_json,
                         forecast.metrics.peak_power_kw,
                         forecast.metrics.peak_timestamp,
+                        source,
                     ],
                 )
                 connection.executemany(
@@ -387,6 +454,64 @@ def save_forecast_run(
         ) from exc
 
     return run_id
+
+
+def get_latest_forecast_run(
+    target_type: str, target_id: UUID
+) -> dict[str, Any] | None:
+    """Load the newest persisted forecast snapshot for a target."""
+    try:
+        with duckdb.connect(str(get_database_path())) as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    id, created_at, forecast_start, forecast_end,
+                    hourly_json, daily_energy_json, peak_power_kw,
+                    peak_timestamp, source
+                FROM forecast_runs
+                WHERE target_type = ? AND target_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                [target_type, target_id],
+            ).fetchone()
+            if row is None:
+                return None
+            if row[4]:
+                hourly = json.loads(row[4])
+            else:
+                points = connection.execute(
+                    """
+                    SELECT timestamp, predicted_power_kw
+                    FROM forecast_points
+                    WHERE run_id = ?
+                    ORDER BY timestamp
+                    """,
+                    [row[0]],
+                ).fetchall()
+                hourly = [
+                    {"timestamp": point[0], "predicted_power_kw": point[1]}
+                    for point in points
+                ]
+            daily = json.loads(row[5])
+    except (duckdb.Error, ValueError, TypeError) as exc:
+        raise ForecastPersistenceError(
+            "Die gespeicherte PV-Prognose konnte nicht geladen werden."
+        ) from exc
+
+    return {
+        "id": row[0],
+        "created_at": row[1],
+        "forecast_start": row[2],
+        "forecast_end": row[3],
+        "hourly": hourly,
+        "daily": daily,
+        "metrics": {
+            "peak_power_kw": row[6],
+            "peak_timestamp": row[7],
+        },
+        "source": row[8] or "fresh",
+    }
 
 
 def list_forecast_runs(
@@ -520,6 +645,23 @@ def delete_plant(plant_id: UUID, session_id: UUID) -> bool:
             if owned_plant is None:
                 connection.execute("COMMIT")
                 return False
+            connection.execute(
+                """
+                DELETE FROM forecast_points
+                WHERE run_id IN (
+                    SELECT id FROM forecast_runs
+                    WHERE target_type = 'plant' AND target_id = ?
+                )
+                """,
+                [plant_id],
+            )
+            connection.execute(
+                """
+                DELETE FROM forecast_runs
+                WHERE target_type = 'plant' AND target_id = ?
+                """,
+                [plant_id],
+            )
             connection.execute(
                 "UPDATE installations SET plant_id = NULL WHERE plant_id = ?",
                 [plant_id],

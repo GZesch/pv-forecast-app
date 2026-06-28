@@ -12,6 +12,7 @@ from backend.database import (
     create_plant,
     delete_installation,
     delete_plant,
+    get_latest_forecast_run,
     get_installation,
     get_plant,
     initialize_database,
@@ -55,6 +56,32 @@ from backend.services.pv_forecast import (
 
 INSTALLATION_NOT_FOUND = "PV-Anlage wurde nicht gefunden."
 SESSION_HEADER = "X-Session-ID"
+RATE_LIMIT_FALLBACK_WARNING = (
+    "Der Wetterdienst hat heute sein Tageslimit erreicht. "
+    "Es wird die zuletzt gespeicherte Prognose angezeigt."
+)
+RATE_LIMIT_WITHOUT_FALLBACK = (
+    "Der Wetterdienst hat heute sein Tageslimit erreicht. "
+    "Es ist noch keine gespeicherte Prognose verfügbar."
+)
+
+
+def load_fallback_forecast(
+    target_type: str, target_id: UUID
+) -> dict[str, object]:
+    try:
+        stored = get_latest_forecast_run(target_type, target_id)
+    except ForecastPersistenceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+    if stored is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=RATE_LIMIT_WITHOUT_FALLBACK,
+        )
+    return stored
 
 
 def require_session_id(
@@ -318,6 +345,7 @@ async def get_weather_forecast(
 @app.get(
     "/installations/{installation_id}/pv-forecast",
     response_model=PVForecastResponse,
+    response_model_exclude_none=True,
     tags=["forecast"],
 )
 async def get_pv_forecast(
@@ -333,6 +361,15 @@ async def get_pv_forecast(
         )
 
     try:
+        source = (
+            "cached"
+            if await open_meteo_service.is_forecast_cached(
+                installation["latitude"],
+                installation["longitude"],
+                forecast_days,
+            )
+            else "fresh"
+        )
         weather = await open_meteo_service.get_hourly_forecast(
             latitude=installation["latitude"],
             longitude=installation["longitude"],
@@ -353,18 +390,26 @@ async def get_pv_forecast(
             daily=daily_energy,
             metrics=metrics,
         )
-        save_forecast_run(installation_id, forecast)
+        save_forecast_run(
+            installation_id,
+            forecast,
+            target_type="installation",
+            source=source,
+        )
         return forecast
     except WeatherServiceTimeoutError as exc:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail=str(exc),
         ) from exc
-    except WeatherServiceRateLimitError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        ) from exc
+    except WeatherServiceRateLimitError:
+        stored = load_fallback_forecast("installation", installation_id)
+        return PVForecastResponse.model_validate(
+            {
+                **stored,
+                "warning": RATE_LIMIT_FALLBACK_WARNING,
+            }
+        )
     except WeatherServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -498,6 +543,7 @@ async def delete_installation_from_plant(
 @app.get(
     "/plants/{plant_id}/pv-forecast",
     response_model=PlantPVForecastResponse,
+    response_model_exclude_none=True,
     tags=["plants", "forecast"],
 )
 async def get_plant_pv_forecast(
@@ -523,6 +569,7 @@ async def get_plant_pv_forecast(
         components: list[PlantForecastComponent] = []
         component_forecasts = []
         weather_by_location: dict[tuple[float, float, int], list[WeatherForecastRow]] = {}
+        all_weather_cached = True
         for installation in installations:
             weather_key = (
                 round(installation["latitude"], 4),
@@ -531,6 +578,12 @@ async def get_plant_pv_forecast(
             )
             weather = weather_by_location.get(weather_key)
             if weather is None:
+                if not await open_meteo_service.is_forecast_cached(
+                    installation["latitude"],
+                    installation["longitude"],
+                    forecast_days,
+                ):
+                    all_weather_cached = False
                 weather = await open_meteo_service.get_hourly_forecast(
                     latitude=installation["latitude"],
                     longitude=installation["longitude"],
@@ -559,22 +612,33 @@ async def get_plant_pv_forecast(
         )
         daily_total = pv_forecast_service.calculate_daily_energy(hourly_total)
         metrics = pv_forecast_service.calculate_metrics(hourly_total)
-        return PlantPVForecastResponse(
+        forecast = PlantPVForecastResponse(
             hourly=hourly_total,
             daily=daily_total,
             metrics=metrics,
             components=components,
         )
+        save_forecast_run(
+            plant_id,
+            forecast,
+            target_type="plant",
+            source="cached" if all_weather_cached else "fresh",
+        )
+        return forecast
     except WeatherServiceTimeoutError as exc:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail=str(exc),
         ) from exc
-    except WeatherServiceRateLimitError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        ) from exc
+    except WeatherServiceRateLimitError:
+        stored = load_fallback_forecast("plant", plant_id)
+        return PlantPVForecastResponse.model_validate(
+            {
+                **stored,
+                "components": [],
+                "warning": RATE_LIMIT_FALLBACK_WARNING,
+            }
+        )
     except WeatherServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -583,5 +647,10 @@ async def get_plant_pv_forecast(
     except PVForecastError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except ForecastPersistenceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         ) from exc

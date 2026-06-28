@@ -105,11 +105,31 @@ def test_open_meteo_caches_nearby_coordinates() -> None:
     assert request_count == 1
 
 
-def test_open_meteo_default_cache_ttl_is_one_hour(monkeypatch) -> None:
+def test_open_meteo_default_cache_ttl_is_six_hours(monkeypatch) -> None:
     monkeypatch.delenv("OPEN_METEO_CACHE_TTL_SECONDS", raising=False)
     service = OpenMeteoService(base_url="https://weather.test")
 
-    assert service.cache_ttl_seconds == 3600
+    assert service.cache_ttl_seconds == 21600
+
+
+def test_open_meteo_base_url_prefers_new_environment_name(monkeypatch) -> None:
+    monkeypatch.setenv("OPENMETEO_BASE_URL", "https://new-weather.test/forecast")
+    monkeypatch.setenv("OPEN_METEO_URL", "https://legacy-weather.test/forecast")
+
+    service = OpenMeteoService()
+
+    assert service.base_url == "https://new-weather.test/forecast"
+
+
+def test_open_meteo_base_url_keeps_legacy_environment_compatible(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("OPENMETEO_BASE_URL", raising=False)
+    monkeypatch.setenv("OPEN_METEO_URL", "https://legacy-weather.test/forecast")
+
+    service = OpenMeteoService()
+
+    assert service.base_url == "https://legacy-weather.test/forecast"
 
 
 def test_open_meteo_translates_http_429() -> None:
