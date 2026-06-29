@@ -40,7 +40,7 @@ from weather_display import (
     installations_share_same_location,
 )
 
-st.set_page_config(page_title="PV Forecast", page_icon="☀️", layout="wide")
+st.set_page_config(page_title="ExergyPulse PV-Forecast", page_icon="☀️", layout="wide")
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 REQUEST_TIMEOUT = 5.0
@@ -266,8 +266,12 @@ def orientation_from_azimuth(azimuth: float) -> str:
     )
 
 
-st.title("☀️ PV Forecast")
+st.title("ExergyPulse PV-Forecast")
 st.subheader("PV-Anlagen verwalten und Leistung prognostizieren")
+st.caption(
+    "Technische Beta · Ein Rechner von "
+    "[ExergyPulse – Energie verstehen. Entscheidungen besser treffen.](https://exergypulse.de)"
+)
 
 try:
     health_response = api_get("/health")

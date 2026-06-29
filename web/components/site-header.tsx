@@ -4,7 +4,6 @@ import { mainNavigation, siteConfig } from "@/lib/site";
 function Brand() {
   return (
     <Link className="brand" href="/" aria-label={`${siteConfig.name} – Startseite`}>
-      <span className="brand-mark" aria-hidden="true"><span /></span>
       <span>{siteConfig.name}</span>
     </Link>
   );

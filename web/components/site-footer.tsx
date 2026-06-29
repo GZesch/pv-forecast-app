@@ -7,10 +7,9 @@ export function SiteFooter() {
       <div className="shell footer-grid">
         <div>
           <Link className="brand brand-footer" href="/">
-            <span className="brand-mark" aria-hidden="true"><span /></span>
             <span>{siteConfig.name}</span>
           </Link>
-          <p className="footer-mission">Energie verstehen. Entscheidungen besser treffen.</p>
+          <p className="footer-mission">{siteConfig.claim}</p>
         </div>
         <div>
           <h2>Orientierung</h2>
@@ -23,7 +22,7 @@ export function SiteFooter() {
         <div>
           <h2>Projekt</h2>
           <ul>
-            <li><Link href="/ueber">Über das Projekt</Link></li>
+            <li><Link href="/ueber">Über ExergyPulse</Link></li>
             <li><span>Deutschland · Technische Beta</span></li>
           </ul>
         </div>

@@ -1,6 +1,7 @@
 export const siteConfig = {
-  name: "Energie verstehen",
-  title: "Energie verstehen. Entscheidungen besser treffen.",
+  name: "ExergyPulse",
+  claim: "Energie verstehen. Entscheidungen besser treffen.",
+  title: "ExergyPulse – Energie verstehen. Entscheidungen besser treffen.",
   description:
     "Neutrales Wissen und transparente Rechner rund um Solarenergie, Speicher und Stromtarife.",
   url: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
@@ -11,7 +12,7 @@ export const mainNavigation = [
   { label: "Rechner", href: "/rechner" },
   { label: "Strompreise", href: "/stromtarife" },
   { label: "Methodik", href: "/methodik" },
-  { label: "Über das Projekt", href: "/ueber" },
+  { label: "Über ExergyPulse", href: "/ueber" },
 ];
 
 export type IconName =

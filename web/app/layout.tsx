@@ -10,6 +10,7 @@ export const metadata: Metadata = {
   description: siteConfig.description,
   applicationName: siteConfig.name,
   openGraph: { type: "website", locale: "de_DE", siteName: siteConfig.name, title: siteConfig.title, description: siteConfig.description },
+  twitter: { card: "summary", title: siteConfig.title, description: siteConfig.description },
   robots: { index: true, follow: true },
 };
 
