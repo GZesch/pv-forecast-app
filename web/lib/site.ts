@@ -1,7 +1,7 @@
 export const siteConfig = {
   name: "ExergyPulse",
-  claim: "Energie verstehen. Entscheidungen besser treffen.",
-  title: "ExergyPulse – Energie verstehen. Entscheidungen besser treffen.",
+  claim: "Energie verstehen. Selbstbestimmt entscheiden.",
+  title: "ExergyPulse – Energie verstehen. Selbstbestimmt entscheiden.",
   description:
     "Neutrales Wissen und transparente Rechner rund um Solarenergie, Speicher und Stromtarife.",
   url: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",

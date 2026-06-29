@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { TopicCard } from "@/components/cards";
-import { Icon } from "@/components/icon";
 import { topics } from "@/lib/site";
 
 export const metadata: Metadata = { alternates: { canonical: "/" } };
@@ -12,25 +11,25 @@ export default function Home() {
       <section className="home-hero">
         <div className="shell hero-grid">
           <div className="hero-copy">
-            <p className="eyebrow"><span className="eyebrow-dot" />Unabhängige Orientierung für Deutschland</p>
-            <h1>Energie verstehen.<br /><span>Entscheidungen besser treffen.</span></h1>
+            <p className="eyebrow hero-eyebrow"><span className="eyebrow-dot" /><span>Unabhängige Orientierung <span aria-hidden="true">·</span> Für Deutschland</span></p>
+            <h1>Energie verstehen.<br /><span>Selbstbestimmt entscheiden.</span></h1>
             <p className="lead">Verständliches Wissen und transparente Rechner rund um Solarenergie, Speicher und Stromtarife – ohne Verkaufsdruck und ohne versteckte Empfehlungen.</p>
             <div className="button-row">
               <Link className="button button-primary" href="/rechner">Rechner entdecken <span aria-hidden="true">→</span></Link>
               <Link className="button button-secondary" href="#themen">Themen verstehen</Link>
             </div>
-            <p className="hero-footnote"><span aria-hidden="true">✓</span> Keine Anbieter-Rankings · keine Leadvermittlung</p>
+            <p className="hero-footnote"><span aria-hidden="true">✓</span> Keine Anbieter-Rankings · keine Leadvermittlung · keine Nutzung deiner Rechnerdaten für Werbung</p>
           </div>
-          <div className="hero-visual" aria-label="Illustration zu Solarenergie und transparenten Energiedaten">
-            <div className="sun-orbit"><span /></div>
-            <div className="data-card data-card-main">
-              <span className="data-label">Orientierung statt Werbung</span>
-              <strong>Nachvollziehbare Annahmen</strong>
-              <div className="mini-chart" aria-hidden="true"><i/><i/><i/><i/><i/><i/><i/></div>
-              <div className="data-meta"><span>Methodik sichtbar</span><span>Stand klar benannt</span></div>
-            </div>
-            <div className="data-card data-card-float"><Icon name="sun" /><span>Solarwissen</span></div>
-          </div>
+          <aside className="hero-principles" aria-labelledby="hero-principles-title">
+            <p className="eyebrow">Keine Blackbox</p>
+            <h2 id="hero-principles-title">Du kannst nachvollziehen, wie Ergebnisse entstehen.</h2>
+            <ul>
+              <li><span aria-hidden="true">✓</span> Annahmen werden offengelegt</li>
+              <li><span aria-hidden="true">✓</span> Datenquellen und Datenstand werden genannt</li>
+              <li><span aria-hidden="true">✓</span> Grenzen und Unsicherheiten bleiben sichtbar</li>
+            </ul>
+            <p className="hero-principles-closing">Orientierung statt Scheingenauigkeit</p>
+          </aside>
         </div>
       </section>
 
