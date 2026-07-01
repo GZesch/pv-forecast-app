@@ -18,6 +18,7 @@ PVGIS_SERIES_URL = "https://re.jrc.ec.europa.eu/api/v5_3/seriescalc"
 CANONICAL_TMY_YEAR = 2001
 EXPECTED_HOURS = 8760
 NEGATIVE_IRRADIANCE_TOLERANCE = -0.1
+_TMY_TIMESTAMP_FIELDS = ("time", "time(UTC)")
 
 
 class PVGISError(Exception):
@@ -299,7 +300,7 @@ def _parse_hour(row: Any) -> WeatherHour:
     if not isinstance(row, dict):
         raise WeatherDataError("PVGIS TMY contains an invalid hourly row.")
     try:
-        source = datetime.strptime(str(row["time"]), "%Y%m%d:%H%M")
+        source = datetime.strptime(_tmy_timestamp_value(row), "%Y%m%d:%H%M")
         timestamp = source.replace(year=CANONICAL_TMY_YEAR, tzinfo=timezone.utc)
         ghi = _irradiance(row["G(h)"], "GHI")
         dni = _irradiance(row["Gb(n)"], "DNI")
@@ -313,6 +314,17 @@ def _parse_hour(row: Any) -> WeatherHour:
     if wind < 0:
         raise WeatherDataError("PVGIS wind speed must not be negative.")
     return WeatherHour(timestamp, ghi, dni, dhi, temperature, wind)
+
+
+def _tmy_timestamp_value(row: dict[str, Any]) -> str:
+    values = [row[field] for field in _TMY_TIMESTAMP_FIELDS if field in row]
+    if not values:
+        raise WeatherDataError("PVGIS TMY contains no supported timestamp field.")
+    if any(not isinstance(value, str) for value in values):
+        raise WeatherDataError("PVGIS TMY timestamp must be a string.")
+    if len(set(values)) != 1:
+        raise WeatherDataError("PVGIS TMY timestamp fields contain conflicting values.")
+    return values[0]
 
 
 def _finite(value: Any, label: str) -> float:

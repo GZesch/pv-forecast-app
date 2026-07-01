@@ -39,6 +39,12 @@ def payload():
     }
 
 
+def use_timestamp_field(data, field):
+    for row in data["outputs"]["tmy_hourly"]:
+        row[field] = row.pop("time")
+    return data
+
+
 def test_parse_normalizes_complete_tmy_and_retains_metadata():
     retrieved = datetime(2026, 1, 1, tzinfo=timezone.utc)
     result = parse_pvgis_tmy(payload(), 52.5, 13.4, retrieved_at=retrieved)
@@ -53,6 +59,66 @@ def test_parse_normalizes_complete_tmy_and_retains_metadata():
     )
     assert result.metadata.irradiance_time_offset_hours == 0.5
     assert result.metadata.retrieved_at == retrieved
+
+
+def test_accepts_documented_time_field():
+    result = parse_pvgis_tmy(payload(), 50, 8)
+    assert len(result.hours) == 8760
+
+
+def test_accepts_observed_time_utc_field():
+    result = parse_pvgis_tmy(use_timestamp_field(payload(), "time(UTC)"), 50, 8)
+    assert len(result.hours) == 8760
+
+
+def test_accepts_identical_supported_timestamp_fields():
+    data = payload()
+    for row in data["outputs"]["tmy_hourly"]:
+        row["time(UTC)"] = row["time"]
+    result = parse_pvgis_tmy(data, 50, 8)
+    assert len(result.hours) == 8760
+
+
+def test_rejects_conflicting_supported_timestamp_fields():
+    data = payload()
+    data["outputs"]["tmy_hourly"][0]["time(UTC)"] = "20090101:0100"
+    with pytest.raises(WeatherDataError, match="conflicting"):
+        parse_pvgis_tmy(data, 50, 8)
+
+
+def test_rejects_missing_supported_timestamp_field():
+    data = payload()
+    del data["outputs"]["tmy_hourly"][0]["time"]
+    with pytest.raises(WeatherDataError, match="no supported timestamp"):
+        parse_pvgis_tmy(data, 50, 8)
+
+
+def test_rejects_non_string_timestamp():
+    data = payload()
+    data["outputs"]["tmy_hourly"][0]["time"] = 200901010000
+    with pytest.raises(WeatherDataError, match="must be a string"):
+        parse_pvgis_tmy(data, 50, 8)
+
+
+def test_rejects_invalid_timestamp_format():
+    data = payload()
+    data["outputs"]["tmy_hourly"][0]["time"] = "2009-01-01T00:00"
+    with pytest.raises(WeatherDataError, match="missing or invalid fields"):
+        parse_pvgis_tmy(data, 50, 8)
+
+
+@pytest.mark.parametrize("mutation", ["gap", "duplicate", "out_of_order"])
+def test_timestamp_sequence_validation_remains_strict(mutation):
+    data = payload()
+    rows = data["outputs"]["tmy_hourly"]
+    if mutation == "gap":
+        rows[1]["time"] = "20090101:0130"
+    elif mutation == "duplicate":
+        rows[1]["time"] = rows[0]["time"]
+    else:
+        rows[0], rows[1] = rows[1], rows[0]
+    with pytest.raises(WeatherDataError, match="duplicated|gaps"):
+        parse_pvgis_tmy(data, 50, 8)
 
 
 @pytest.mark.anyio
