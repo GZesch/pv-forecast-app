@@ -39,3 +39,12 @@ callers cannot substitute another expected checksum.
 Generation remains fail-closed without a validated external CSV. Synthetic
 ExergyPulse scenarios are transformations of that validated H25 basis and are
 clearly labelled as scenarios rather than measurements.
+
+For the Compose runtime, keep the generated file outside this source-data
+directory at `runtime-data/bdew_h25.csv`, run
+`uv run python scripts/verify_bdew_h25.py runtime-data/bdew_h25.csv`, and set
+`BDEW_H25_DATA_HOST_DIR` to the containing host directory. Compose mounts that
+directory read-only at `/app/runtime-data` and reads
+`/app/runtime-data/bdew_h25.csv`; neither Git nor the Docker build context may
+contain the file. A missing or invalid CSV blocks only the Next.js calculator;
+the backend and existing Streamlit forecast remain startable.

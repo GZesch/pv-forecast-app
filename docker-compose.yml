@@ -8,8 +8,15 @@ services:
       NOMINATIM_USER_AGENT: ${NOMINATIM_USER_AGENT:-pv-forecast-app/1.0}
       OPENMETEO_BASE_URL: ${OPENMETEO_BASE_URL:-https://api.open-meteo.com/v1/forecast}
       OPEN_METEO_CACHE_TTL_SECONDS: ${OPEN_METEO_CACHE_TTL_SECONDS:-21600}
+      BDEW_H25_CSV_PATH: /app/runtime-data/bdew_h25.csv
     volumes:
       - ./database:/app/database
+      - type: bind
+        source: ${BDEW_H25_DATA_HOST_DIR:-./runtime-data}
+        target: /app/runtime-data
+        read_only: true
+        bind:
+          create_host_path: false
     expose:
       - "8000"
     healthcheck:
@@ -45,8 +52,10 @@ services:
       context: .
       target: web
       args:
-        NEXT_PUBLIC_SITE_URL: ${PREVIEW_SITE_ADDRESS:-http://preview.localhost}
-        NEXT_PUBLIC_PV_FORECAST_URL: ${PV_FORECAST_URL:-http://localhost}
+        NEXT_PUBLIC_SITE_URL: ${SITE_ADDRESS:-http://exergypulse.localhost}
+        NEXT_PUBLIC_PV_FORECAST_URL: ${FORECAST_SITE_ADDRESS:-http://forecast.localhost}
+    environment:
+      BACKEND_API_BASE_URL: http://backend:8000
     expose:
       - "3000"
     healthcheck:
@@ -59,13 +68,38 @@ services:
       timeout: 3s
       retries: 5
       start_period: 10s
+    depends_on:
+      backend:
+        condition: service_healthy
+      h25-preflight:
+        condition: service_completed_successfully
     restart: unless-stopped
+
+  h25-preflight:
+    build:
+      context: .
+      target: backend
+    command:
+      - uv
+      - run
+      - --no-sync
+      - python
+      - scripts/verify_bdew_h25.py
+      - /app/runtime-data/bdew_h25.csv
+    volumes:
+      - type: bind
+        source: ${BDEW_H25_DATA_HOST_DIR:-./runtime-data}
+        target: /app/runtime-data
+        read_only: true
+        bind:
+          create_host_path: false
+    restart: "no"
 
   caddy:
     image: caddy:2.8-alpine
     environment:
-      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
-      PREVIEW_SITE_ADDRESS: ${PREVIEW_SITE_ADDRESS:-http://preview.localhost}
+      SITE_ADDRESS: ${SITE_ADDRESS:-http://exergypulse.localhost}
+      FORECAST_SITE_ADDRESS: ${FORECAST_SITE_ADDRESS:-http://forecast.localhost}
     ports:
       - "80:80"
       - "443:443"
@@ -75,9 +109,10 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - frontend
-      - backend
-      - web
+      frontend:
+        condition: service_started
+      backend:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

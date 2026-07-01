@@ -109,6 +109,26 @@ def sha256_file(path: str | Path) -> str:
     return digest.hexdigest().upper()
 
 
+def verify_bdew_h25_file(path: str | Path) -> BDEWH25Data:
+    """Verify the external official H25 CSV without exposing its contents."""
+    source_path = Path(path)
+    if not source_path.is_file():
+        raise H25DataUnavailableError(
+            "The validated external official H25 CSV file was not found or is not a regular file."
+        )
+    if sha256_file(source_path) != OFFICIAL_H25_CSV_SHA256:
+        raise LoadProfileError(
+            "External H25 CSV provenance check failed: its SHA-256 does not "
+            "match the validated conversion of the official BDEW workbook."
+        )
+    with source_path.open(encoding="utf-8", newline="") as source:
+        return parse_bdew_h25_csv(
+            source, unit="kWh", normalization_kwh=SOURCE_NORMALIZATION_KWH,
+            source_name="BDEW H25", source_version=SOURCE_VERSION,
+            source_url=OFFICIAL_SOURCE_URL, source_sha256=OFFICIAL_XLSX_SHA256,
+        )
+
+
 def convert_bdew_h25_xlsx(
     input_path: str | Path, output_path: str | Path, *,
     expected_sha256: str = OFFICIAL_XLSX_SHA256,
@@ -298,26 +318,10 @@ def generate_household_load_profile(
         raise H25DataUnavailableError(
             "The validated external official H25 CSV file is required."
         )
-    try:
-        actual_csv_hash = sha256_file(h25_csv_path)
-    except FileNotFoundError as exc:
-        raise H25DataUnavailableError(
-            "The validated external official H25 CSV file was not found."
-        ) from exc
-    if actual_csv_hash != OFFICIAL_H25_CSV_SHA256:
-        raise LoadProfileError(
-            "External H25 CSV provenance check failed: its SHA-256 does not "
-            "match the validated conversion of the official BDEW workbook."
-        )
-    with Path(h25_csv_path).open(encoding="utf-8", newline="") as source:
-        h25 = parse_bdew_h25_csv(
-            source, unit="kWh", normalization_kwh=SOURCE_NORMALIZATION_KWH,
-            source_name="BDEW H25", source_version=SOURCE_VERSION,
-            source_url=OFFICIAL_SOURCE_URL, source_sha256=OFFICIAL_XLSX_SHA256,
-        )
+    h25 = verify_bdew_h25_file(h25_csv_path)
     return _generate_household_load_profile_from_data(
         annual_consumption_kwh, state, kind, h25,
-        source_csv_sha256=actual_csv_hash,
+        source_csv_sha256=OFFICIAL_H25_CSV_SHA256,
     )
 
 

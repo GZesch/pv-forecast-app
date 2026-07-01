@@ -1,54 +1,44 @@
-# Öffentliches Web-Frontend
+# Öffentliches ExergyPulse-Web-Frontend
 
-Isoliertes Next.js-Frontend der Energie-Wissensplattform. Das bestehende
-FastAPI-Backend und das Streamlit-Frontend werden in diesem Arbeitspaket nicht
-eingebunden oder verändert.
+Next.js stellt die öffentliche Hauptseite und den PV-/Speicher-
+Wirtschaftlichkeitsrechner bereit. Der Browser verwendet für Berechnungen nur
+den Same-Origin Route Handler `/api/pv-economics/calculate`. Dieser leitet
+serverseitig an `BACKEND_API_BASE_URL` weiter; die Backend-Adresse darf nicht als
+`NEXT_PUBLIC_`-Variable veröffentlicht werden.
 
-## Lokal starten
+## Lokale Entwicklung ohne Compose
 
-Voraussetzungen: Node.js 20.9 oder neuer und pnpm.
+Voraussetzungen: Node.js 20.9 oder neuer, pnpm und ein lokal erreichbares
+FastAPI-Backend.
 
-```bash
+```text
+BACKEND_API_BASE_URL=http://localhost:8000
 pnpm install
 pnpm dev
 ```
 
-Anschließend ist das Frontend unter `http://localhost:3000` erreichbar.
+Das Frontend ist dann unter <http://localhost:3000> erreichbar. Der serverseitige
+Default für das Backend lautet `http://localhost:8000`.
 
-## Prüfen und bauen
+## Prüfung
 
-```bash
+```text
 pnpm lint
 pnpm typecheck
 pnpm build
-pnpm start
 ```
 
-Für korrekte absolute URLs in `sitemap.xml` und `robots.txt` wird beim späteren
-Deployment `NEXT_PUBLIC_SITE_URL` auf die öffentliche HTTPS-Adresse gesetzt.
-Lokal fällt die Anwendung auf `http://localhost:3000` zurück.
+## Compose-Betrieb
 
-## Docker-Preview
+Caddy leitet `SITE_ADDRESS` an `web:3000`. Lokal ist das standardmäßig
+<http://exergypulse.localhost>. Beim Image-Build werden daraus Canonicals,
+Sitemap und robots.txt erzeugt. Der Link zum getrennten Streamlit-Forecast wird
+aus `FORECAST_SITE_ADDRESS` als `NEXT_PUBLIC_PV_FORECAST_URL` eingebettet.
 
-Im gemeinsamen Compose-Setup läuft dieses Frontend als interner Dienst `web`.
-Nur Caddy erreicht Port 3000; ein Host-Port wird nicht veröffentlicht. Die
-Vorschau verwendet lokal standardmäßig `http://preview.localhost`, während
-`http://localhost` weiterhin das bestehende Streamlit-Frontend zeigt. Falls der
-lokale Resolver den reservierten `.localhost`-Namen nicht auflöst, muss
-`preview.localhost` in der Hosts-Datei auf `127.0.0.1` gesetzt werden.
-
-`PREVIEW_SITE_ADDRESS` aus der Root-`.env` wird beim Image-Build als
-`NEXT_PUBLIC_SITE_URL` gesetzt. Dadurch verwenden Canonicals, `sitemap.xml` und
-`robots.txt` die Preview-Adresse. Nach einer Änderung muss das Image neu gebaut
-werden:
-
-```bash
-docker compose build web
-docker compose up -d web caddy
-```
-
-Der PV-Forecast verweist während der Übergangszeit auf die bestehende
-Streamlit-Anwendung. Das Linkziel wird in der Root-`.env` mit
-`PV_FORECAST_URL` konfiguriert und beim Build als
-`NEXT_PUBLIC_PV_FORECAST_URL` übernommen. Der Link öffnet sich in einem neuen
-Tab; die übrigen Rechner-Platzhalter bleiben unverändert.
+Im laufenden Web-Container ist `BACKEND_API_BASE_URL=http://backend:8000`
+ausschließlich serverseitig gesetzt. `web` wartet auf ein gesundes Backend und
+auf den erfolgreich abgeschlossenen H25-Preflight. Fehlende oder ungültige
+H25-Laufzeitdaten blockieren damit den neuen Rechnerpfad. Caddy wartet nicht
+auf `web`: Bis zum erfolgreichen Preflight ist der Next.js-Haupt-Host daher
+kontrolliert nicht verfügbar, während Backend, Caddy und der bestehende
+Streamlit-Forecast startbar und über den Forecast-Host erreichbar bleiben.

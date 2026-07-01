@@ -11,3 +11,9 @@ web/.next
 web/node_modules
 web/out
 web/*.tsbuildinfo
+
+# External H25 runtime data must never enter an image build context.
+runtime-data/bdew_h25.csv
+runtime-data/Kopie_von_Repräsentative_Profile_BDEW_H25_G25_L25_P25_S25_Veröffentlichung.xlsx
+backend/pv_economics/data/bdew_h25.csv
+backend/pv_economics/data/Kopie_von_Repräsentative_Profile_BDEW_H25_G25_L25_P25_S25_Veröffentlichung.xlsx

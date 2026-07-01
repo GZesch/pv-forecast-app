@@ -12,6 +12,7 @@ RUN uv sync --no-dev --no-install-project
 
 COPY backend ./backend
 COPY frontend ./frontend
+COPY scripts/verify_bdew_h25.py ./scripts/verify_bdew_h25.py
 
 FROM base AS backend
 EXPOSE 8000
@@ -35,8 +36,8 @@ RUN pnpm install --frozen-lockfile
 
 FROM web-dependencies AS web-builder
 
-ARG NEXT_PUBLIC_SITE_URL=http://preview.localhost
-ARG NEXT_PUBLIC_PV_FORECAST_URL=http://localhost
+ARG NEXT_PUBLIC_SITE_URL=http://exergypulse.localhost
+ARG NEXT_PUBLIC_PV_FORECAST_URL=http://forecast.localhost
 ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
 ENV NEXT_PUBLIC_PV_FORECAST_URL=$NEXT_PUBLIC_PV_FORECAST_URL
 

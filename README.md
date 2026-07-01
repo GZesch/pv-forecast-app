@@ -1,101 +1,47 @@
-# PV Forecast App
+# ExergyPulse
 
-Grundgerüst einer Web-Anwendung zur Vorhersage von Photovoltaik-Leistung mit
-FastAPI, Streamlit und DuckDB.
+Die öffentliche Hauptseite läuft mit Next.js. Der bestehende kurzfristige
+PV-Forecast bleibt als getrennte Streamlit-Anwendung erhalten. FastAPI ist nur
+im Compose-Netz unter `backend:8000` erreichbar; Caddy ist der einzige Dienst
+mit öffentlichen Host-Ports.
 
-## Start mit Docker Compose
+## Lokale Zielarchitektur
 
-```bash
-cp .env.example .env
-docker compose up -d --build
-```
+- Next.js-Hauptseite: <http://exergypulse.localhost>
+- Streamlit-Forecast: <http://forecast.localhost>
+- Forecast-API-Dokumentation: <http://forecast.localhost/api/docs>
+- Forecast-Health: <http://forecast.localhost/api/health>
 
-Das Compose-Setup entspricht dem Produktionsaufbau: Caddy ist der einzige
-öffentlich erreichbare Dienst. FastAPI und Streamlit sind nur im internen
-Docker-Netz erreichbar. Für lokale Entwicklung mit automatischem Reload können
-die weiter unten dokumentierten `uv`-Befehle verwendet werden.
+Der Browser sendet PV-Wirtschaftlichkeitsanfragen ausschließlich an den
+Same-Origin-Handler `/api/pv-economics/calculate`. Der Next.js-Server erreicht
+FastAPI intern über `BACKEND_API_BASE_URL=http://backend:8000`; es gibt keine
+öffentliche Backend-URL in einer `NEXT_PUBLIC_`-Variable.
 
-Danach sind die Dienste erreichbar:
+## Vorbereitung vor dem Containerstart
 
-- App (weiterhin Streamlit): <http://localhost>
-- Next.js-Preview: <http://preview.localhost>
-- API-Dokumentation über Caddy: <http://localhost/api/docs>
-- Health Check über Caddy: <http://localhost/api/health>
+1. Offizielle H25-XLSX lokal und außerhalb des Repositories beschaffen.
+2. Deterministische CSV erzeugen:
+   `uv run python scripts/convert_bdew_h25.py INPUT.xlsx runtime-data/bdew_h25.csv`
+3. Netzwerkfreien Preflight ausführen:
+   `uv run python scripts/verify_bdew_h25.py runtime-data/bdew_h25.csv`
+4. `.env.example` nach `.env` kopieren und Hostverzeichnis/Adressen prüfen.
+5. Compose-Konfiguration prüfen:
+   `docker compose --env-file .env.example config --quiet`.
+6. Erst danach und mit gesonderter Betriebsfreigabe Container starten.
 
-Beenden mit:
+Die H25-Datei wird weder von Git verwaltet noch in das Docker-Image kopiert.
+Das vorhandene Hostverzeichnis `./runtime-data` wird read-only nach
+`/app/runtime-data` eingebunden; die Anwendung liest dort `bdew_h25.csv`. Fehlt
+die Datei oder ist sie ungültig, kann das Backend trotzdem starten, der
+One-shot-Preflight endet jedoch mit einem Fehler und `web` startet nicht. Caddy
+wartet nicht auf `web`: Der Next.js-Haupt-Host bleibt bis zur erfolgreichen
+Bereitstellung kontrolliert nicht verfügbar, während Backend und der
+bestehende Streamlit-Forecast startbar und über den Forecast-Host erreichbar
+bleiben.
 
-```bash
-docker compose down
-```
-
-### Getrennte Next.js-Preview
-
-Caddy bedient zwei voneinander getrennte Adressen: `SITE_ADDRESS` bleibt die
-öffentliche Streamlit-Hauptadresse, `PREVIEW_SITE_ADDRESS` leitet ausschließlich
-an den internen Next.js-Dienst `web:3000` weiter. Lokal verwendet die Preview
-den Standardwert `http://preview.localhost`. Falls das Betriebssystem diesen
-reservierten `.localhost`-Namen nicht selbst auflöst, muss in der lokalen
-Hosts-Datei `127.0.0.1 preview.localhost` ergänzt werden. Es werden keine
-zusätzlichen Host-Ports geöffnet.
-
-Für eine andere Preview-Adresse in `.env` eine vollständige URL setzen:
-
-```dotenv
-SITE_ADDRESS=:80
-PREVIEW_SITE_ADDRESS=http://preview.localhost
-PV_FORECAST_URL=http://localhost
-```
-
-Die Preview-Adresse wird beim Build in die statischen Metadaten übernommen.
-Nach einer Änderung deshalb `web` neu bauen und Caddy aktualisieren:
-
-```bash
-docker compose build web
-docker compose up -d web caddy
-```
-
-`PV_FORECAST_URL` ist die öffentliche Adresse des bestehenden
-Streamlit-Rechners. Next.js verwendet sie ausschließlich für den temporären
-PV-Forecast-Link; Änderungen an dieser Adresse erfordern ebenfalls einen Neubau
-des `web`-Images.
-
-Manuelle lokale Prüfung:
-
-```bash
-curl http://localhost/
-curl http://preview.localhost/
-curl http://preview.localhost/methodik
-curl http://localhost/api/health
-```
-
-Die Namensauflösung kann vorab geprüft werden:
-
-```powershell
-Resolve-DnsName preview.localhost
-```
-
-Für einen einmaligen Test ohne Hosts-Datei kann curl die Auflösung explizit
-vorgeben:
-
-```powershell
-curl.exe --resolve preview.localhost:80:127.0.0.1 http://preview.localhost/
-```
-
-Die Preview lässt sich ohne Auswirkung auf Streamlit mit
-`docker compose stop web` deaktivieren; die Preview-Adresse antwortet dann nicht
-mehr erfolgreich, Hauptseite und API bleiben verfügbar. Mit
-`docker compose up -d web` wird sie wieder aktiviert.
-
-Bei einer späteren, ausdrücklich freigegebenen Umschaltung wird im
-`SITE_ADDRESS`-Block des Caddyfiles nur das abschließende Standard-Routing von
-`frontend:8501` auf `web:3000` geändert. Die `/api/*`-, Swagger- und
-OAuth-Weiterleitungen bleiben dabei bestehen. Dieser Umschaltvorgang ist in der
-aktuellen Preview-Konfiguration noch nicht vorgenommen.
-
-Die DuckDB-Datei liegt auf dem Host unter `./database/pv_forecast.duckdb` und
-bleibt bei Container-Neubauten sowie `docker compose down` erhalten. Dieses
-Verzeichnis darf bei Deployments nicht gelöscht werden. `docker compose down -v`
-entfernt nur die Caddy-Volumes, nicht das gebundene Datenbankverzeichnis.
+Die DuckDB-Datei liegt weiterhin unter `./database/pv_forecast.duckdb`. Dieses
+Verzeichnis nicht löschen. Insbesondere ist `docker compose down -v` keine
+pauschale Betriebsanweisung und ersetzt keine DuckDB-Sicherung.
 
 ## Anlagen-API
 
@@ -272,29 +218,35 @@ cd <MEIN_REPO>
 cp .env.example .env
 nano .env
 mkdir -p database
-docker compose up -d --build
-docker compose ps
-docker compose logs -f
+mkdir -p runtime-data
+# H25 extern beschaffen, konvertieren und prüfen (siehe Vorbereitung oben)
+docker compose --env-file .env.example config --quiet
 ```
 
-Für den ersten Start über die Server-IP bleibt in `.env`:
+Erst nach erfolgreicher Daten- und Konfigurationsprüfung werden die Container in
+einem gesondert freigegebenen Betriebsschritt gestartet. Für zwei Domains stehen
+in `.env` beispielsweise:
 
 ```dotenv
-SITE_ADDRESS=:80
+SITE_ADDRESS=exergypulse.example.de
+FORECAST_SITE_ADDRESS=forecast.example.de
+BDEW_H25_DATA_HOST_DIR=./runtime-data
 ```
 
-Die App ist anschließend unter `http://<SERVER-IP>` erreichbar. FastAPI und
-Streamlit veröffentlichen selbst keine Host-Ports. Caddy ist der einzige
-öffentliche Dienst und leitet die App an Streamlit weiter.
+FastAPI, Next.js und Streamlit veröffentlichen selbst keine Host-Ports. Caddy
+leitet die Hauptdomain an Next.js und die Forecast-Domain an Streamlit weiter.
+Caddy hängt nicht von `web` ab: Bei fehlender oder ungültiger H25-Datei bleibt
+die Hauptdomain bis zum erfolgreichen Preflight kontrolliert nicht verfügbar,
+der bestehende Forecast-Pfad bleibt jedoch startbar und erreichbar.
 
 Das Streamlit-Python-Backend ruft FastAPI serverseitig über
 `API_BASE_URL=http://backend:8000` auf. Der Browser benötigt die API deshalb
-nicht direkt. Für Diagnose und Dokumentation stellt Caddy trotzdem `/api/*`
-bereit und entfernt das Präfix vor der Weiterleitung:
+nicht direkt. Ausschließlich die Forecast-Domain stellt für den bestehenden
+Forecast `/api/*` bereit und entfernt das Präfix vor der Weiterleitung:
 
 ```bash
-curl http://<SERVER-IP>/api/health
-curl "http://<SERVER-IP>/api/debug/open-meteo?lat=59.32512&lon=18.07109"
+curl https://forecast.example.de/api/health
+curl "https://forecast.example.de/api/debug/open-meteo?lat=59.32512&lon=18.07109"
 ```
 
 ### 4. DuckDB übernehmen und sichern
@@ -330,11 +282,12 @@ ls -lh database/pv_forecast.duckdb
 
 ### 5. Domain und automatisches HTTPS aktivieren
 
-Für die Domain einen DNS-A-Record auf die Server-IPv4 setzen. Danach in `.env`
-die Adresse ohne Protokoll eintragen:
+Für beide Domains DNS-A-Records auf die Server-IPv4 setzen. Danach in `.env`
+die Adressen ohne Protokoll eintragen:
 
 ```dotenv
-SITE_ADDRESS=forecast.example.de
+SITE_ADDRESS=exergypulse.example.de
+FORECAST_SITE_ADDRESS=forecast.example.de
 ```
 
 Anschließend Caddy neu laden. Bei korrektem DNS und offenen Ports 80/443
