@@ -1,0 +1,173 @@
+"""Async infrastructure adapter for the official PVGIS 5.3 TMY API."""
+
+from datetime import datetime, timedelta, timezone
+from math import isfinite
+from typing import Any
+
+import httpx
+
+from .weather import TMYMetadata, TMYWeather, WeatherDataError, WeatherHour
+
+PVGIS_TMY_URL = "https://re.jrc.ec.europa.eu/api/v5_3/tmy"
+CANONICAL_TMY_YEAR = 2001
+EXPECTED_HOURS = 8760
+NEGATIVE_IRRADIANCE_TOLERANCE = -0.1
+
+
+class PVGISError(Exception):
+    """Base error for PVGIS access and response failures."""
+
+
+class PVGISTimeoutError(PVGISError):
+    """PVGIS did not answer within the configured timeout."""
+
+
+class PVGISTemporaryError(PVGISError):
+    """A retryable external PVGIS overload (HTTP 529)."""
+
+
+class PVGISResponseError(PVGISError):
+    """PVGIS returned an unusable response."""
+
+
+class PVGISTMYClient:
+    """Fetch non-persistent SARAH3 TMY data using coordinates only."""
+
+    def __init__(
+        self, *, base_url: str = PVGIS_TMY_URL,
+        client: httpx.AsyncClient | None = None, timeout_seconds: float = 20.0,
+    ) -> None:
+        self.base_url = base_url
+        self._client = client
+        self.timeout_seconds = timeout_seconds
+
+    async def fetch(self, latitude: float, longitude: float) -> TMYWeather:
+        _validate_coordinates(latitude, longitude)
+        params = {"lat": latitude, "lon": longitude, "outputformat": "json",
+                  "raddatabase": "PVGIS-SARAH3", "usehorizon": 1}
+        headers = {"User-Agent": "ExergyPulse-PV-Economics/1.0"}
+        try:
+            if self._client is None:
+                async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                    response = await client.get(self.base_url, params=params, headers=headers)
+            else:
+                response = await self._client.get(
+                    self.base_url, params=params, headers=headers,
+                    timeout=self.timeout_seconds,
+                )
+        except httpx.TimeoutException as exc:
+            raise PVGISTimeoutError("PVGIS did not respond in time.") from exc
+        except httpx.RequestError as exc:
+            raise PVGISError("PVGIS is currently unreachable.") from exc
+        if response.status_code == 529:
+            raise PVGISTemporaryError("PVGIS is temporarily overloaded; retry later.")
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise PVGISError(f"PVGIS returned HTTP status {response.status_code}.") from exc
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise PVGISResponseError("PVGIS returned invalid JSON.") from exc
+        try:
+            return parse_pvgis_tmy(payload, latitude, longitude, self.base_url)
+        except WeatherDataError as exc:
+            raise PVGISResponseError(str(exc)) from exc
+
+
+def parse_pvgis_tmy(
+    payload: Any, latitude: float, longitude: float, endpoint: str = PVGIS_TMY_URL,
+    *, retrieved_at: datetime | None = None,
+) -> TMYWeather:
+    """Normalize PVGIS source years to 2001 without changing month/day/hour."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("outputs"), dict):
+        raise WeatherDataError("PVGIS response is missing outputs.")
+    rows = payload["outputs"].get("tmy_hourly")
+    if not isinstance(rows, list) or not rows:
+        raise WeatherDataError("PVGIS response contains no TMY hourly data.")
+    if len(rows) != EXPECTED_HOURS:
+        raise WeatherDataError("PVGIS TMY must contain exactly 8,760 hours.")
+    hours = tuple(_parse_hour(row) for row in rows)
+    timestamps = tuple(hour.timestamp for hour in hours)
+    if timestamps != tuple(sorted(timestamps)) or len(set(timestamps)) != EXPECTED_HOURS:
+        raise WeatherDataError("PVGIS TMY timestamps are duplicated or not chronological.")
+    expected = tuple(
+        datetime(CANONICAL_TMY_YEAR, 1, 1, tzinfo=timezone.utc)
+        + index * _ONE_HOUR for index in range(EXPECTED_HOURS)
+    )
+    if timestamps != expected:
+        raise WeatherDataError("PVGIS TMY contains gaps or invalid calendar positions.")
+
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    inputs = payload.get("inputs") if isinstance(payload.get("inputs"), dict) else {}
+    meteo = inputs.get("meteo_data") if isinstance(inputs.get("meteo_data"), dict) else {}
+    selected_raw = payload["outputs"].get("months_selected", [])
+    try:
+        selected = tuple(
+            (int(item["month"]), int(item["year"])) for item in selected_raw
+            if isinstance(item, dict) and "month" in item and "year" in item
+        )
+    except (TypeError, ValueError) as exc:
+        raise WeatherDataError("PVGIS selected-month metadata is invalid.") from exc
+    source_period = _source_period(meteo, meta)
+    offset = meteo.get("irradiance_time_offset")
+    if offset is not None:
+        offset = _finite(offset, "irradiance time offset")
+    metadata = TMYMetadata(
+        str(meteo.get("radiation_db", "PVGIS-SARAH3")), source_period, selected,
+        retrieved_at or datetime.now(timezone.utc), endpoint, offset,
+    )
+    return TMYWeather(latitude, longitude, hours, metadata)
+
+
+_ONE_HOUR = timedelta(hours=1)
+
+
+def _parse_hour(row: Any) -> WeatherHour:
+    if not isinstance(row, dict):
+        raise WeatherDataError("PVGIS TMY contains an invalid hourly row.")
+    try:
+        source = datetime.strptime(str(row["time"]), "%Y%m%d:%H%M")
+        timestamp = source.replace(year=CANONICAL_TMY_YEAR, tzinfo=timezone.utc)
+        ghi = _irradiance(row["G(h)"], "GHI")
+        dni = _irradiance(row["Gb(n)"], "DNI")
+        dhi = _irradiance(row["Gd(h)"], "DHI")
+        temperature = _finite(row["T2m"], "temperature")
+        wind = _finite(row["WS10m"], "wind speed")
+    except (KeyError, TypeError, ValueError) as exc:
+        if isinstance(exc, WeatherDataError):
+            raise
+        raise WeatherDataError("PVGIS TMY contains missing or invalid fields.") from exc
+    if wind < 0:
+        raise WeatherDataError("PVGIS wind speed must not be negative.")
+    return WeatherHour(timestamp, ghi, dni, dhi, temperature, wind)
+
+
+def _finite(value: Any, label: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise WeatherDataError(f"PVGIS {label} must be numeric.") from exc
+    if not isfinite(number):
+        raise WeatherDataError(f"PVGIS {label} must be finite.")
+    return number
+
+
+def _irradiance(value: Any, label: str) -> float:
+    number = _finite(value, label)
+    if number < NEGATIVE_IRRADIANCE_TOLERANCE:
+        raise WeatherDataError(f"PVGIS {label} is materially negative.")
+    return max(0.0, number)
+
+
+def _validate_coordinates(latitude: float, longitude: float) -> None:
+    if not all(isfinite(value) for value in (latitude, longitude)):
+        raise PVGISError("Coordinates must be finite.")
+    if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+        raise PVGISError("Coordinates are outside valid latitude/longitude ranges.")
+
+
+def _source_period(meteo: dict[str, Any], meta: dict[str, Any]) -> str | None:
+    start = meteo.get("year_min") or meta.get("year_min")
+    end = meteo.get("year_max") or meta.get("year_max")
+    return f"{start}-{end}" if start is not None and end is not None else None

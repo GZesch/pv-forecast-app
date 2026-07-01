@@ -9,8 +9,22 @@ from .models import (
     ScenarioResult,
 )
 from .simulation import calculate_energy_scenarios
+from .pv_generation import (
+    ConstantShading, MonthlyHourlyShading, PVGenerationError, PVPlantResult,
+    PVSurface, PVSurfaceResult, calculate_pv_plant, calculate_pv_surface,
+)
+from .pvgis import (
+    PVGISError, PVGISResponseError, PVGISTMYClient, PVGISTemporaryError,
+    PVGISTimeoutError,
+)
+from .weather import TMYMetadata, TMYWeather, WeatherDataError, WeatherHour
 
 __all__ = [
     "BatteryConfig", "EnergyBalance", "EnergyModelError", "EnergyModelResult",
     "HourlyEnergyFlow", "ScenarioResult", "calculate_energy_scenarios",
+    "ConstantShading", "MonthlyHourlyShading", "PVGenerationError",
+    "PVPlantResult", "PVSurface", "PVSurfaceResult", "calculate_pv_plant",
+    "calculate_pv_surface", "PVGISError", "PVGISResponseError",
+    "PVGISTMYClient", "PVGISTemporaryError", "PVGISTimeoutError",
+    "TMYMetadata", "TMYWeather", "WeatherDataError", "WeatherHour",
 ]

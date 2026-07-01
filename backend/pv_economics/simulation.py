@@ -61,7 +61,11 @@ def _validated_series(values: Sequence[float], label: str) -> tuple[float, ...]:
 def _validate_battery(config: BatteryConfig) -> None:
     values = (config.usable_capacity_kwh, config.max_charge_power_kw,
               config.max_discharge_power_kw, config.round_trip_efficiency)
-    if any(not isfinite(value) for value in values):
+    try:
+        finite = all(isfinite(value) for value in values)
+    except TypeError as exc:
+        raise EnergyModelError("Battery parameters must be numeric.") from exc
+    if not finite:
         raise EnergyModelError("Battery parameters must be finite numbers.")
     if config.usable_capacity_kwh <= 0:
         raise EnergyModelError("Usable battery capacity must be positive.")
