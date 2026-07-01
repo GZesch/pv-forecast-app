@@ -101,7 +101,11 @@ def parse_pvgis_tmy(
     meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
     inputs = payload.get("inputs") if isinstance(payload.get("inputs"), dict) else {}
     meteo = inputs.get("meteo_data") if isinstance(inputs.get("meteo_data"), dict) else {}
+    location = inputs.get("location") if isinstance(inputs.get("location"), dict) else {}
+    selected_present = "months_selected" in payload["outputs"]
     selected_raw = payload["outputs"].get("months_selected", [])
+    if selected_present and not isinstance(selected_raw, list):
+        raise WeatherDataError("PVGIS selected-month metadata must be a list.")
     try:
         selected = tuple(
             (int(item["month"]), int(item["year"])) for item in selected_raw
@@ -109,12 +113,21 @@ def parse_pvgis_tmy(
         )
     except (TypeError, ValueError) as exc:
         raise WeatherDataError("PVGIS selected-month metadata is invalid.") from exc
+    if selected_present and (
+        len(selected) != 12 or {month for month, _ in selected} != set(range(1, 13))
+    ):
+        raise WeatherDataError(
+            "PVGIS selected-month metadata must contain every month exactly once."
+        )
     source_period = _source_period(meteo, meta)
-    offset = meteo.get("irradiance_time_offset")
+    offset = location.get("irradiance_time_offset")
     if offset is not None:
         offset = _finite(offset, "irradiance time offset")
+    radiation_database = meteo.get("radiation_db")
+    if radiation_database is not None:
+        radiation_database = str(radiation_database).strip() or None
     metadata = TMYMetadata(
-        str(meteo.get("radiation_db", "PVGIS-SARAH3")), source_period, selected,
+        radiation_database, source_period, selected,
         retrieved_at or datetime.now(timezone.utc), endpoint, offset,
     )
     return TMYWeather(latitude, longitude, hours, metadata)

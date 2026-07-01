@@ -25,12 +25,17 @@ def payload():
                      "G(h)": -0.01, "Gb(n)": 0, "Gd(h)": 0,
                      "T2m": -2, "WS10m": 3})
     return {
-        "inputs": {"meteo_data": {"radiation_db": "PVGIS-SARAH3",
-                                    "year_min": 2005, "year_max": 2023,
-                                    "irradiance_time_offset": 10}},
+        "inputs": {
+            "location": {"latitude": 52.5, "longitude": 13.4,
+                         "irradiance_time_offset": 0.5},
+            "meteo_data": {"radiation_db": "PVGIS-SARAH3",
+                           "year_min": 2005, "year_max": 2023},
+        },
         "outputs": {"tmy_hourly": rows,
-                    "months_selected": [{"month": 1, "year": 2009},
-                                        {"month": 7, "year": 2010}]},
+                    "months_selected": [
+                        {"month": month, "year": 2009 if month <= 6 else 2010}
+                        for month in range(1, 13)
+                    ]},
     }
 
 
@@ -43,8 +48,10 @@ def test_parse_normalizes_complete_tmy_and_retains_metadata():
     assert result.hours[0].ghi_w_m2 == 0
     assert result.metadata.radiation_database == "PVGIS-SARAH3"
     assert result.metadata.source_period == "2005-2023"
-    assert result.metadata.selected_months == ((1, 2009), (7, 2010))
-    assert result.metadata.irradiance_time_offset_minutes == 10
+    assert result.metadata.selected_months == tuple(
+        (month, 2009 if month <= 6 else 2010) for month in range(1, 13)
+    )
+    assert result.metadata.irradiance_time_offset_hours == 0.5
     assert result.metadata.retrieved_at == retrieved
 
 
@@ -92,3 +99,23 @@ def test_rejects_incomplete_and_invalid_weather():
     invalid["outputs"]["tmy_hourly"][0]["G(h)"] = -1
     with pytest.raises(WeatherDataError, match="negative"):
         parse_pvgis_tmy(invalid, 50, 8)
+
+
+@pytest.mark.parametrize("months", [
+    [{"month": month, "year": 2010} for month in range(1, 12)],
+    ([{"month": month, "year": 2010} for month in range(1, 12)]
+     + [{"month": 11, "year": 2011}]),
+    ([{"month": month, "year": 2010} for month in range(1, 12)]
+     + [{"month": 13, "year": 2011}]),
+])
+def test_rejects_incomplete_duplicate_or_invalid_selected_months(months):
+    data = payload()
+    data["outputs"]["months_selected"] = months
+    with pytest.raises(WeatherDataError, match="every month exactly once"):
+        parse_pvgis_tmy(data, 50, 8)
+
+
+def test_missing_radiation_database_is_not_invented():
+    data = payload()
+    del data["inputs"]["meteo_data"]["radiation_db"]
+    assert parse_pvgis_tmy(data, 50, 8).metadata.radiation_database is None

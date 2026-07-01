@@ -59,6 +59,31 @@ def test_matrix_uses_berlin_local_hour_in_summer_and_winter():
     assert all(hour.poa_direct_after_shading_wh_m2 == 0 for hour in result.hourly)
 
 
+def test_half_hour_irradiance_offset_shifts_solar_time_not_shading_time(monkeypatch):
+    matrix = [list(row) for row in MonthlyHourlyShading.constant(0).factors]
+    matrix[5][14] = 1  # 12:45 UTC is 14:45 CEST before the irradiance offset.
+    shading = MonthlyHourlyShading(tuple(tuple(row) for row in matrix))
+    stamp = datetime(2001, 6, 21, 12, 45, tzinfo=timezone.utc)
+    captured = {}
+    from backend.pv_economics import pv_generation
+
+    original = pv_generation.pvlib.solarposition.get_solarposition
+
+    def capture_solar_time(times, latitude, longitude):
+        captured["time"] = times[0].to_pydatetime()
+        return original(times, latitude, longitude)
+
+    monkeypatch.setattr(
+        pv_generation.pvlib.solarposition, "get_solarposition", capture_solar_time
+    )
+    result = calculate_pv_surface(
+        weather((stamp,)), 52.5, 13.4, surface(shading=shading),
+        irradiance_time_offset_hours=0.5,
+    )
+    assert captured["time"] == stamp + timedelta(minutes=30)
+    assert result.hourly[0].poa_direct_after_shading_wh_m2 == 0
+
+
 def test_efficiency_losses_and_clipping_are_separate():
     hours = weather((datetime(2001, 6, 21, 12, tzinfo=timezone.utc),))
     base = calculate_pv_surface(hours, 52.5, 13.4, surface())

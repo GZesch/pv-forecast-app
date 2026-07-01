@@ -24,12 +24,12 @@ class WeatherHour:
 class TMYMetadata:
     """Provenance retained from the PVGIS 5.3 TMY response."""
 
-    radiation_database: str
+    radiation_database: str | None
     source_period: str | None
     selected_months: tuple[tuple[int, int], ...]
     retrieved_at: datetime
     api_endpoint: str
-    irradiance_time_offset_minutes: float | None = None
+    irradiance_time_offset_hours: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

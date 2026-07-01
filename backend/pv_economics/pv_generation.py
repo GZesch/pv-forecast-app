@@ -94,7 +94,7 @@ def calculate_pv_plant(
         raise PVGenerationError("At least one PV surface is required.")
     results = tuple(calculate_pv_surface(weather.hours, weather.latitude,
                                         weather.longitude, surface, albedo=albedo,
-                                        irradiance_time_offset_minutes=weather.metadata.irradiance_time_offset_minutes)
+                                        irradiance_time_offset_hours=weather.metadata.irradiance_time_offset_hours)
                     for surface in surfaces)
     combined = tuple(sum(values) for values in zip(*(item.ac_energy_kwh for item in results)))
     peak = sum(item.surface.peak_power_kwp for item in results)
@@ -105,7 +105,7 @@ def calculate_pv_plant(
 def calculate_pv_surface(
     hours: tuple[WeatherHour, ...], latitude: float, longitude: float,
     surface: PVSurface, *, albedo: float = 0.2,
-    irradiance_time_offset_minutes: float | None = None,
+    irradiance_time_offset_hours: float | None = None,
 ) -> PVSurfaceResult:
     """Calculate hourly mean kW; over a one-hour PVGIS interval this equals kWh."""
     _validate_surface(surface)
@@ -132,8 +132,8 @@ def calculate_pv_surface(
            or hour.wind_speed_m_s < 0 for hour in hours):
         raise PVGenerationError("Irradiance and wind speed must not be negative.")
     solar_times = times
-    if irradiance_time_offset_minutes is not None:
-        solar_times = times + timedelta(minutes=irradiance_time_offset_minutes)
+    if irradiance_time_offset_hours is not None:
+        solar_times = times + timedelta(hours=irradiance_time_offset_hours)
     solar = pvlib.solarposition.get_solarposition(solar_times, latitude, longitude)
     dni = np.asarray([hour.dni_w_m2 for hour in hours], dtype=float)
     ghi = np.asarray([hour.ghi_w_m2 for hour in hours], dtype=float)
