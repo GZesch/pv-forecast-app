@@ -22,6 +22,15 @@ from .load_profiles import (
     H25DataUnavailableError, LoadProfileError, LoadProfileResult, ProfileKind,
     generate_household_load_profile,
 )
+from .degradation import (
+    DegradationError, GeometricBatteryDegradation, PVDegradation,
+    WarrantyBatteryDegradation,
+)
+from .projection import EnergyProjection, ProjectionYear, project_energy
+from .economics import (
+    CostAllocation, EconomicInputs, EconomicResult, EconomicsError,
+    FinancialMetrics, OneTimeCost, calculate_economics,
+)
 
 __all__ = [
     "BatteryConfig", "EnergyBalance", "EnergyModelError", "EnergyModelResult",
@@ -33,4 +42,8 @@ __all__ = [
     "TMYMetadata", "TMYWeather", "WeatherDataError", "WeatherHour",
     "H25DataUnavailableError", "LoadProfileError",
     "LoadProfileResult", "ProfileKind", "generate_household_load_profile",
+    "DegradationError", "GeometricBatteryDegradation", "PVDegradation",
+    "WarrantyBatteryDegradation", "EnergyProjection", "ProjectionYear",
+    "project_energy", "CostAllocation", "EconomicInputs", "EconomicResult",
+    "EconomicsError", "FinancialMetrics", "OneTimeCost", "calculate_economics",
 ]
