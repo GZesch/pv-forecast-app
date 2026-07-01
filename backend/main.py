@@ -3,7 +3,10 @@ from typing import Annotated, AsyncIterator
 
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from backend.database import (
     ForecastPersistenceError,
@@ -43,6 +46,26 @@ from backend.models import (
     PVForecastResponse,
     WeatherForecastRow,
 )
+from backend.pv_economics.degradation import DegradationError
+from backend.pv_economics.economics import EconomicsError
+from backend.pv_economics.eeg import EEGTariffError
+from backend.pv_economics.load_profiles import (
+    H25DataUnavailableError,
+    LoadProfileError,
+)
+from backend.pv_economics.models import EnergyModelError
+from backend.pv_economics.pv_generation import PVGenerationError
+from backend.pv_economics.pvgis import (
+    PVGISError,
+    PVGISResponseError,
+    PVGISTemporaryError,
+    PVGISTimeoutError,
+)
+from backend.pv_economics_api_models import (
+    PVEconomicsRequest,
+    PVEconomicsResponse,
+)
+from backend.services.pv_economics import pv_economics_service
 from backend.services.open_meteo import (
     WeatherServiceError,
     WeatherServiceRateLimitError,
@@ -116,6 +139,50 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def pv_economics_validation_error(
+    request: Request, exc: RequestValidationError,
+) -> Response:
+    if request.url.path != "/pv-economics/calculate":
+        return await request_validation_exception_handler(request, exc)
+    detail = [
+        {"type": error["type"], "loc": error["loc"], "msg": error["msg"]}
+        for error in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content={"detail": detail})
+
+
+@app.post(
+    "/pv-economics/calculate",
+    response_model=PVEconomicsResponse,
+    tags=["pv-economics"],
+)
+async def calculate_pv_economics(
+    data: PVEconomicsRequest,
+) -> PVEconomicsResponse:
+    """Calculate a stateless PV offer check without storing request or result."""
+    try:
+        return await pv_economics_service.calculate(data)
+    except H25DataUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (PVGISTimeoutError, PVGISTemporaryError) as exc:
+        raise HTTPException(status_code=503, detail="Der PVGIS-Dienst ist vorübergehend nicht verfügbar.") from exc
+    except PVGISResponseError as exc:
+        raise HTTPException(status_code=502, detail="PVGIS hat ungültige Wetterdaten geliefert.") from exc
+    except PVGISError as exc:
+        raise HTTPException(status_code=503, detail="Der PVGIS-Dienst ist nicht erreichbar.") from exc
+    except EEGTariffError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (LoadProfileError, EnergyModelError, PVGenerationError,
+            DegradationError, EconomicsError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Die Berechnung konnte intern nicht abgeschlossen werden.",
+        ) from exc
 
 
 @app.get("/", tags=["general"])

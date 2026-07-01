@@ -43,6 +43,13 @@ class EconomicInputs:
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedInvestments:
+    pv_investment_eur: float | None
+    battery_incremental_investment_eur: float | None
+    package_investment_eur: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class AnnualEconomics:
     operating_year: int
     electricity_price_eur_per_kwh: float
@@ -86,7 +93,10 @@ def calculate_economics(
     years = len(projection.years)
     _validate_inputs(inputs, years)
     has_battery = projection.original_battery_capacity_kwh is not None
-    pv_investment, battery_investment, total_investment = _resolve_investments(inputs)
+    resolved = resolve_investments(inputs)
+    pv_investment = resolved.pv_investment_eur
+    battery_investment = resolved.battery_incremental_investment_eur
+    total_investment = resolved.package_investment_eur
     if not has_battery:
         if battery_investment is not None and battery_investment > INVESTMENT_TOLERANCE_EUR:
             raise EconomicsError("Battery investment is not allowed without a battery projection.")
@@ -236,9 +246,9 @@ def _validate_inputs(inputs: EconomicInputs, years: int) -> None:
             raise EconomicsError("One-time costs must be valid and within the projection.")
 
 
-def _resolve_investments(
+def resolve_investments(
     inputs: EconomicInputs,
-) -> tuple[float | None, float | None, float | None]:
+) -> ResolvedInvestments:
     """Resolve PV, battery and package investment without estimating a split."""
     pv = inputs.pv_investment_eur
     battery = inputs.battery_incremental_investment_eur
@@ -258,4 +268,4 @@ def _resolve_investments(
     if any(value is not None and value < 0
            for value in (pv, battery, package)):
         raise EconomicsError("Derived investment components must not be negative.")
-    return pv, battery, package
+    return ResolvedInvestments(pv, battery, package)

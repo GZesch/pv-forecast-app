@@ -30,6 +30,7 @@ class HourlyEnergyFlow:
     battery_internal_discharge: float
     battery_losses: float
     feed_in: float
+    curtailed_pv: float
     grid_import: float
     state_of_charge_end: float
 
@@ -63,6 +64,8 @@ class ScenarioResult:
     battery_delivery_to_load_kwh: float
     battery_losses_kwh: float
     feed_in_kwh: float
+    curtailed_pv_kwh: float
+    curtailment_ratio: float
     grid_import_kwh: float
     self_used_pv_kwh: float
     self_consumption_ratio: float

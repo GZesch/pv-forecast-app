@@ -38,12 +38,16 @@ def project_energy(
     years: int, *, battery: BatteryConfig | None = None,
     pv_degradation: PVDegradation = PVDegradation(),
     battery_degradation: BatteryDegradationModel | None = None,
+    max_grid_feed_in_power_kw: float | None = None,
+    feed_in_limit_years: int = 0,
 ) -> EnergyProjection:
     """Scale only PV/capacity inputs and rerun the complete dispatch per year."""
     if not isinstance(years, int) or years <= 0:
         raise ValueError("Projection years must be a positive integer.")
     if battery_degradation is not None and battery is None:
         raise ValueError("Battery degradation requires a battery configuration.")
+    if not isinstance(feed_in_limit_years, int) or not 0 <= feed_in_limit_years <= years:
+        raise ValueError("Feed-in limit years must be between zero and projection years.")
     model = battery_degradation or GeometricBatteryDegradation()
     original_capacity = battery.usable_capacity_kwh if battery else None
     cumulative = 0.0
@@ -65,8 +69,9 @@ def project_energy(
                 configured_battery = BatteryConfig(
                     capacity, battery.max_charge_power_kw,
                     battery.max_discharge_power_kw, battery.round_trip_efficiency)
+        limit = max_grid_feed_in_power_kw if operating_year <= feed_in_limit_years else None
         energy = calculate_energy_scenarios(
-            household_load_kwh, pv_areas, configured_battery)
+            household_load_kwh, pv_areas, configured_battery, limit)
         before = cumulative
         if energy.pv_with_battery is not None:
             cumulative += energy.pv_with_battery.battery_internal_throughput_kwh

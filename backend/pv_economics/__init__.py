@@ -29,7 +29,12 @@ from .degradation import (
 from .projection import EnergyProjection, ProjectionYear, project_energy
 from .economics import (
     CostAllocation, EconomicInputs, EconomicResult, EconomicsError,
-    FinancialMetrics, OneTimeCost, calculate_economics,
+    FinancialMetrics, OneTimeCost, ResolvedInvestments, calculate_economics,
+    resolve_investments,
+)
+from .eeg import (
+    EEGTariffError, EEGTariffResult, annual_feed_in_tariffs,
+    resolve_eeg_surplus_tariff,
 )
 
 __all__ = [
@@ -46,4 +51,7 @@ __all__ = [
     "WarrantyBatteryDegradation", "EnergyProjection", "ProjectionYear",
     "project_energy", "CostAllocation", "EconomicInputs", "EconomicResult",
     "EconomicsError", "FinancialMetrics", "OneTimeCost", "calculate_economics",
+    "ResolvedInvestments", "resolve_investments",
+    "EEGTariffError", "EEGTariffResult", "annual_feed_in_tariffs",
+    "resolve_eeg_surplus_tariff",
 ]
