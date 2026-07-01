@@ -1,0 +1,49 @@
+.section { padding-top: 2.5rem; }
+.section form { max-width: 64rem; }
+.intro { margin-bottom: 1.5rem; padding: 1rem 1.2rem; border-left: 4px solid var(--sun); background: var(--paper); }
+.intro p { margin: 0; color: var(--ink-soft); }
+.card { min-width: 0; margin: 0 0 1.5rem; padding: clamp(1rem, 3vw, 2rem); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); box-shadow: 0 8px 24px rgba(17,53,48,.05); }
+.card > legend { padding: 0 .45rem; color: var(--ink); font-size: clamp(1.3rem, 3vw, 1.75rem); font-weight: 800; letter-spacing: -.02em; }
+.grid { display: grid; gap: 1rem; margin: 1rem 0; }
+.field { display: grid; align-content: start; gap: .3rem; color: var(--ink-soft); font-weight: 700; }
+.field small { color: var(--muted); font-weight: 500; }
+.field input, .field select, .inner select { width: 100%; min-height: 2.8rem; padding: .55rem .7rem; border: 1px solid #aebfba; border-radius: .45rem; color: var(--ink); background: #fff; }
+.field input[aria-invalid="true"], .field select[aria-invalid="true"] { border: 2px solid #a4382b; }
+.field input:disabled { color: var(--muted); background: #eef1ef; }
+.help { margin: .55rem 0 1rem; color: var(--muted); font-size: .9rem; }
+.error { color: #8f2c22; font-size: .86rem; font-weight: 700; }
+.summary { margin-bottom: 1.5rem; padding: 1.2rem; border: 2px solid #a4382b; border-radius: var(--radius); background: #fff5f3; }
+.summary h2 { margin-bottom: .5rem; font-size: 1.25rem; }
+.summary ul { margin: 0; }
+.subcard { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--mint-light); }
+.subhead { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.subhead h2 { margin: 0; font-size: 1.15rem; }
+.quiet, .add { min-height: 2.6rem; padding: .5rem .8rem; cursor: pointer; border: 1px solid #a9beb5; border-radius: .45rem; color: var(--forest); background: var(--paper); font-weight: 750; }
+.add { margin-top: 1rem; }
+.details { margin-top: 1rem; }
+.details > summary { cursor: pointer; color: var(--forest); font-weight: 800; }
+.details[open] > summary { margin-bottom: 1rem; }
+.inner { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; }
+.inner legend { padding: 0 .3rem; font-weight: 750; }
+.inner label, .toggle { display: flex; align-items: center; gap: .55rem; }
+.toggle { font-weight: 750; }
+.toggle input, .inner input { width: 1.2rem; height: 1.2rem; }
+.warning { padding: .8rem 1rem; border-radius: .5rem; color: #604d1f; background: #fff1c9; }
+.resolution { padding: .8rem 1rem; border-radius: .5rem; color: var(--forest); background: var(--mint); font-weight: 700; }
+.matrixWrap { max-width: 100%; overflow-x: auto; border: 1px solid var(--line); background: var(--paper); }
+.matrixWrap table { border-collapse: collapse; font-size: .78rem; }
+.matrixWrap caption { padding: .7rem; font-weight: 800; text-align: left; }
+.matrixWrap th { position: sticky; left: 0; z-index: 1; min-width: 6.5rem; padding: .3rem; background: var(--mint-light); }
+.matrixWrap td { padding: .15rem; border: 1px solid var(--line); }
+.matrixWrap td input { width: 3.7rem; padding: .3rem; border: 1px solid #aebfba; }
+.submit { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin: 2rem 0; }
+.submit button:disabled { cursor: wait; opacity: .7; }
+.submit p { margin: 0; color: var(--muted); }
+.success { padding: 1.5rem; border: 2px solid var(--forest); border-radius: var(--radius); background: var(--mint-light); }
+.success h2 { font-size: 1.5rem; }
+.metadata { display: grid; gap: .4rem; }
+.metadata div { display: grid; grid-template-columns: minmax(8rem, 1fr) 2fr; gap: .5rem; }
+.metadata dt { color: var(--muted); text-transform: capitalize; }
+.metadata dd { margin: 0; overflow-wrap: anywhere; }
+@media (min-width: 42rem) { .grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (min-width: 62rem) { .grid { grid-template-columns: repeat(3,minmax(0,1fr)); } }
