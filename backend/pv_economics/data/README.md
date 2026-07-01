@@ -27,12 +27,14 @@ that reason neither the original workbook nor converted values are committed.
 Run the local, network-free converter with explicit paths:
 
 ```text
-uv run python scripts/convert_bdew_h25.py INPUT.xlsx OUTPUT.csv
+uv run python scripts/convert_bdew_h25.py INPUT.xlsx backend/pv_economics/data/bdew_h25.csv
 ```
 
 It verifies the original checksum and workbook structure, creates deterministic
-UTF-8 CSV, and prints both checksums. Supply the generated CSV path and printed
-CSV checksum explicitly to `generate_household_load_profile`.
+UTF-8 CSV, and prints both checksums. The public generator accepts only the
+known deterministic output checksum
+`83A7F47E3A6BDEC28EF49FC56351542B3CBC13493BD988908B15579D7A6D66B8`;
+callers cannot substitute another expected checksum.
 
 Generation remains fail-closed without a validated external CSV. Synthetic
 ExergyPulse scenarios are transformations of that validated H25 basis and are

@@ -13,7 +13,5 @@ web/.env*.local
 web/*.tsbuildinfo
 
 # BDEW H25 source and generated data are externally supplied and not redistributable.
-**/*BDEW*H25*.xlsx
-**/*BDEW*H25*.csv
-backend/pv_economics/data/*.xlsx
-backend/pv_economics/data/*.csv
+backend/pv_economics/data/bdew_h25.csv
+backend/pv_economics/data/Kopie_von_Repräsentative_Profile_BDEW_H25_G25_L25_P25_S25_Veröffentlichung.xlsx

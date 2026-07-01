@@ -23,6 +23,7 @@ OFFICIAL_SOURCE_URL = (
     "BDEW_H25_G25_L25_P25_S25_Ver%C3%B6ffentlichung.xlsx"
 )
 OFFICIAL_XLSX_SHA256 = "1803D4C612693563A784EB61001E7C58FFD6BD18A6BCA3780F774F3C3459B845"
+OFFICIAL_H25_CSV_SHA256 = "83A7F47E3A6BDEC28EF49FC56351542B3CBC13493BD988908B15579D7A6D66B8"
 SOURCE_VERSION = "2025-03-17"
 SOURCE_NORMALIZATION_KWH = 1_000_000.0
 CANONICAL_YEAR = 2001
@@ -282,7 +283,7 @@ def _easter_sunday(year: int) -> date:
 def generate_household_load_profile(
     annual_consumption_kwh: float, federal_state: str,
     profile_kind: ProfileKind | str = ProfileKind.H25, *,
-    h25_csv_path: str | Path | None = None, h25_csv_sha256: str | None = None,
+    h25_csv_path: str | Path | None = None,
 ) -> LoadProfileResult:
     if not isfinite(annual_consumption_kwh) or annual_consumption_kwh <= 0:
         raise LoadProfileError("Annual consumption must be positive and finite.")
@@ -293,19 +294,48 @@ def generate_household_load_profile(
     state = federal_state.upper()
     if state not in SUPPORTED_STATES:
         raise LoadProfileError(f"Unsupported German federal state: {federal_state}.")
-    if h25_csv_path is None or not h25_csv_sha256:
+    if h25_csv_path is None:
         raise H25DataUnavailableError(
-            "A validated external H25 CSV path and SHA-256 are required."
+            "The validated external official H25 CSV file is required."
         )
-    actual_csv_hash = sha256_file(h25_csv_path)
-    if actual_csv_hash != h25_csv_sha256.upper():
-        raise LoadProfileError("External H25 CSV SHA-256 does not match.")
+    try:
+        actual_csv_hash = sha256_file(h25_csv_path)
+    except FileNotFoundError as exc:
+        raise H25DataUnavailableError(
+            "The validated external official H25 CSV file was not found."
+        ) from exc
+    if actual_csv_hash != OFFICIAL_H25_CSV_SHA256:
+        raise LoadProfileError(
+            "External H25 CSV provenance check failed: its SHA-256 does not "
+            "match the validated conversion of the official BDEW workbook."
+        )
     with Path(h25_csv_path).open(encoding="utf-8", newline="") as source:
         h25 = parse_bdew_h25_csv(
             source, unit="kWh", normalization_kwh=SOURCE_NORMALIZATION_KWH,
             source_name="BDEW H25", source_version=SOURCE_VERSION,
             source_url=OFFICIAL_SOURCE_URL, source_sha256=OFFICIAL_XLSX_SHA256,
         )
+    return _generate_household_load_profile_from_data(
+        annual_consumption_kwh, state, kind, h25,
+        source_csv_sha256=actual_csv_hash,
+    )
+
+
+def _generate_household_load_profile_from_data(
+    annual_consumption_kwh: float, federal_state: str,
+    profile_kind: ProfileKind | str, h25: BDEWH25Data, *,
+    source_csv_sha256: str,
+) -> LoadProfileResult:
+    """Pure generator for already validated data; tests may inject artificial data."""
+    if not isfinite(annual_consumption_kwh) or annual_consumption_kwh <= 0:
+        raise LoadProfileError("Annual consumption must be positive and finite.")
+    try:
+        kind = ProfileKind(profile_kind)
+    except ValueError as exc:
+        raise LoadProfileError(f"Unsupported profile kind: {profile_kind}.") from exc
+    state = federal_state.upper()
+    if state not in SUPPORTED_STATES:
+        raise LoadProfileError(f"Unsupported German federal state: {federal_state}.")
     timestamps = tuple(datetime(CANONICAL_YEAR, 1, 1, tzinfo=timezone.utc)
                        + timedelta(hours=hour) for hour in range(8760))
     quarters: list[float] = []
@@ -327,19 +357,27 @@ def generate_household_load_profile(
                    for index in range(0, len(quarters), 4))
     synthetic = ()
     name = "BDEW H25 – empfohlenes Standardlastprofil"
-    source_type = "bdew_h25"
+    is_official = (
+        h25.source_sha256 == OFFICIAL_XLSX_SHA256
+        and source_csv_sha256 == OFFICIAL_H25_CSV_SHA256
+    )
+    source_type = "bdew_h25" if is_official else "artificial_test_data"
     if kind != ProfileKind.H25:
         hourly, synthetic = _transform_synthetic(hourly, timestamps, kind)
         name = "Synthetisches ExergyPulse-Szenarioprofil – nicht aus deinen Messdaten abgeleitet."
-        source_type = "exergypulse_synthetic"
+        source_type = (
+            "exergypulse_synthetic" if is_official
+            else "exergypulse_synthetic_test_data"
+        )
     note = (
         "H25 is not an individual measurement and contains moderate prosumer influence. "
         "The canonical year affects weekday and holiday assignment; quarter-hours are "
         "aggregated to UTC hours. Heat pumps and electric vehicles are not separate."
     )
-    metadata = LoadProfileMetadata(source_type, "BDEW H25", SOURCE_VERSION,
-                                   OFFICIAL_SOURCE_URL, OFFICIAL_XLSX_SHA256,
-                                   actual_csv_hash, note, synthetic)
+    metadata = LoadProfileMetadata(
+        source_type, h25.source_name, h25.source_version, h25.source_url,
+        h25.source_sha256, source_csv_sha256, note, synthetic,
+    )
     return LoadProfileResult(kind.value, name, timestamps, hourly,
                              annual_consumption_kwh, metadata)
 
