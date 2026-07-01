@@ -19,6 +19,7 @@ export type FormValues = {
   pvOperatingCost: string; pvOperatingCostAutomatic: boolean; batteryOperatingCost: string;
   postEegValue: string; feedInLimitKind: "none" | "kw" | "percent";
   feedInLimit: string; feedInLimitYears: string;
+  includeWeatherSensitivity: boolean;
 };
 
 export type FieldErrors = Record<string, string>;
@@ -120,7 +121,7 @@ export function buildRequest(v: FormValues) {
       pv_operating_cost_year1_eur: pvOpex, battery_operating_cost_year1_eur: number(v.batteryOperatingCost), post_eeg_value_eur_per_kwh: number(v.postEegValue),
       max_feed_in_power_kw: v.feedInLimitKind === "kw" ? number(v.feedInLimit) : null, max_feed_in_percent: v.feedInLimitKind === "percent" ? number(v.feedInLimit) : null,
       feed_in_limit_years: v.feedInLimitKind === "none" ? 0 : number(v.feedInLimitYears),
-    }, one_time_costs: [],
+    }, one_time_costs: [], include_weather_sensitivity: v.includeWeatherSensitivity,
   };
 }
 
