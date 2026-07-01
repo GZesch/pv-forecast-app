@@ -18,6 +18,9 @@ from .pvgis import (
     PVGISTimeoutError,
 )
 from .weather import TMYMetadata, TMYWeather, WeatherDataError, WeatherHour
+from .load_profiles import (
+    H25DataUnavailableError, LoadProfileError, generate_household_load_profile,
+)
 
 __all__ = [
     "BatteryConfig", "EnergyBalance", "EnergyModelError", "EnergyModelResult",
@@ -27,4 +30,6 @@ __all__ = [
     "calculate_pv_surface", "PVGISError", "PVGISResponseError",
     "PVGISTMYClient", "PVGISTemporaryError", "PVGISTimeoutError",
     "TMYMetadata", "TMYWeather", "WeatherDataError", "WeatherHour",
+    "H25DataUnavailableError", "LoadProfileError",
+    "generate_household_load_profile",
 ]
