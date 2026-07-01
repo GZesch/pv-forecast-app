@@ -1,10 +1,11 @@
 """Stateless orchestration for the PV economics offer check."""
 
 import os
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+from math import ceil
 
 from backend.pv_economics.degradation import (
     GeometricBatteryDegradation, PVDegradation, WarrantyBatteryDegradation,
@@ -21,20 +22,34 @@ from backend.pv_economics.load_profiles import generate_household_load_profile
 from backend.pv_economics.models import BatteryConfig
 from backend.pv_economics.pv_generation import (
     ConstantShading, MonthlyHourlyShading, PVSurface, calculate_pv_plant,
+    calculate_pv_surface_from_poa,
 )
-from backend.pv_economics.pvgis import PVGISTMYClient
+from backend.pv_economics.pvgis import (
+    PVGISHistoricalClient, PVGISResponseError, PVGISTMYClient,
+)
 from backend.pv_economics.projection import project_energy
 from backend.pv_economics.simulation import calculate_energy_scenarios
 from backend.pv_economics.warnings import derive_warnings
+from backend.pv_economics.sensitivity import (
+    HistoricalPlantYear, WeatherSensitivityError, select_weather_years,
+)
 from backend.pv_economics_api_models import PVEconomicsRequest, PVEconomicsResponse
+
+
+@dataclass(frozen=True, slots=True)
+class _Evaluation:
+    projection: object
+    economics: object
 
 
 class PVEconomicsService:
     def __init__(self, *, pvgis_client: PVGISTMYClient | None = None,
+                 historical_client: PVGISHistoricalClient | None = None,
                  load_provider: Callable[..., object] = generate_household_load_profile,
                  h25_csv_path: str | Path | None = None,
                  clock: Callable[[], datetime] | None = None) -> None:
         self.pvgis_client = pvgis_client or PVGISTMYClient()
+        self.historical_client = historical_client or PVGISHistoricalClient()
         self.load_provider = load_provider
         self.h25_csv_path = h25_csv_path or os.getenv("BDEW_H25_CSV_PATH")
         self.clock = clock or (lambda: datetime.now(timezone.utc))
@@ -53,14 +68,6 @@ class PVEconomicsService:
         limit = assumptions.max_feed_in_power_kw
         if assumptions.max_feed_in_percent is not None:
             limit = peak * assumptions.max_feed_in_percent / 100
-        projection = project_energy(
-            load.hourly_consumption_kwh,
-            tuple(item.ac_energy_kwh for item in plant.surfaces), assumptions.years,
-            battery=battery, pv_degradation=PVDegradation(assumptions.pv_degradation_rate),
-            battery_degradation=battery_degradation,
-            max_grid_feed_in_power_kw=limit,
-            feed_in_limit_years=assumptions.feed_in_limit_years,
-        )
         tariff = resolve_eeg_surplus_tariff(
             peak, request.commissioning_date,
             manual_override_eur_per_kwh=request.manual_feed_in_tariff_eur_per_kwh)
@@ -86,15 +93,12 @@ class PVEconomicsService:
                     "Enter annual PV operating costs explicitly."
                 )
             pv_opex = resolved_investments.pv_investment_eur * .01
-        economics = calculate_economics(projection, EconomicInputs(
-            request.electricity_price_eur_per_kwh,
-            assumptions.electricity_price_growth_rate, tariffs,
-            assumptions.nominal_discount_rate,
-            request.pv_investment_eur, request.battery_incremental_investment_eur,
-            request.package_investment_eur, pv_opex,
-            assumptions.battery_operating_cost_year1_eur,
-            assumptions.operating_cost_growth_rate, events,
-        ))
+        evaluation = self._evaluate(
+            request, load.hourly_consumption_kwh,
+            tuple(item.ac_energy_kwh for item in plant.surfaces), battery,
+            battery_degradation, limit, tariffs, events, pv_opex,
+        )
+        projection, economics = evaluation.projection, evaluation.economics
         first = projection.years[0].energy
         comparison = calculate_energy_scenarios(
             load.hourly_consumption_kwh,
@@ -117,6 +121,13 @@ class PVEconomicsService:
             feed_in_limit_in_base_case=(limit is not None
                                         and assumptions.feed_in_limit_years > 0),
         )
+        weather_sensitivity = None
+        if request.include_weather_sensitivity:
+            weather_sensitivity = await self._weather_sensitivity(
+                request, surfaces, plant.annual_ac_energy_kwh,
+                load.hourly_consumption_kwh, battery, battery_degradation,
+                limit, tariffs, events, pv_opex,
+            )
         return PVEconomicsResponse(
             metadata={
                 "model_version": MODEL_VERSION,
@@ -168,7 +179,108 @@ class PVEconomicsService:
             warnings=[asdict(item) for item in warnings],
             disclaimers=["Orientation only; no financing, taxes or individual legal advice.",
                          "A partial final EEG year is represented by day-weighting in the annual model."],
+            weather_sensitivity=weather_sensitivity,
         )
+
+    @staticmethod
+    def _evaluate(request, load_series, pv_areas, battery,
+                  battery_degradation, limit, tariffs, events, pv_opex):
+        assumptions = request.assumptions
+        projection = project_energy(
+            load_series, pv_areas, assumptions.years, battery=battery,
+            pv_degradation=PVDegradation(assumptions.pv_degradation_rate),
+            battery_degradation=battery_degradation,
+            max_grid_feed_in_power_kw=limit,
+            feed_in_limit_years=assumptions.feed_in_limit_years,
+        )
+        economics = calculate_economics(projection, EconomicInputs(
+            request.electricity_price_eur_per_kwh,
+            assumptions.electricity_price_growth_rate, tariffs,
+            assumptions.nominal_discount_rate,
+            request.pv_investment_eur, request.battery_incremental_investment_eur,
+            request.package_investment_eur, pv_opex,
+            assumptions.battery_operating_cost_year1_eur,
+            assumptions.operating_cost_growth_rate, events,
+        ))
+        return _Evaluation(projection, economics)
+
+    async def _weather_sensitivity(
+        self, request, surfaces, tmy_generation, load_series, battery,
+        battery_degradation, limit, tariffs, events, pv_opex,
+    ):
+        histories = []
+        for surface in surfaces:
+            histories.append(await self.historical_client.fetch(
+                request.latitude, request.longitude, tilt_deg=surface.tilt_deg,
+                azimuth_deg=surface.azimuth_deg,
+            ))
+        common_years = set(item.source_year for item in histories[0].years)
+        for history in histories[1:]:
+            common_years &= {item.source_year for item in history.years}
+        metadata = histories[0].metadata
+        if any((history.metadata.radiation_database != metadata.radiation_database
+                or history.metadata.api_endpoint != metadata.api_endpoint
+                or history.metadata.source_period != metadata.source_period)
+               for history in histories[1:]):
+            raise PVGISResponseError("Historical surface provenance is inconsistent.")
+        plant_years = []
+        for year in sorted(common_years):
+            area_results = []
+            for surface, history in zip(surfaces, histories):
+                source = next(item for item in history.years if item.source_year == year)
+                area_results.append(calculate_pv_surface_from_poa(source.hours, surface))
+            timestamps = [tuple(hour.timestamp for hour in next(
+                item for item in history.years if item.source_year == year).hours)
+                for history in histories]
+            if any(stamps != timestamps[0] for stamps in timestamps[1:]):
+                raise PVGISResponseError("Historical surface timestamps are inconsistent.")
+            plant_years.append(HistoricalPlantYear(
+                year, tuple(item.ac_energy_kwh for item in area_results),
+                sum(item.annual_ac_energy_kwh for item in area_results),
+            ))
+        try:
+            selected = select_weather_years(tuple(plant_years))
+        except WeatherSensitivityError as exc:
+            raise PVGISResponseError(str(exc)) from exc
+        ordered = sorted(item.annual_ac_energy_kwh for item in plant_years)
+        median_rank = max(1, ceil(.5 * len(ordered)))
+        scenarios = []
+        for choice in selected:
+            evaluation = self._evaluate(
+                request, load_series, choice.year.surface_ac_energy_kwh, battery,
+                battery_degradation, limit, tariffs, events, pv_opex,
+            )
+            first = evaluation.projection.years[0].energy
+            economics = evaluation.economics
+            deviation = ((choice.year.annual_ac_energy_kwh / tmy_generation - 1) * 100
+                         if tmy_generation > 0 else None)
+            scenarios.append({
+                "label": choice.label, "display_label": choice.display_label,
+                "source_year": choice.year.source_year,
+                "quantile": choice.quantile, "nearest_rank": choice.nearest_rank,
+                "annual_pv_generation_kwh": choice.year.annual_ac_energy_kwh,
+                "deviation_from_tmy_percent": deviation,
+                "first_year": _first_year(first),
+                "economics": {
+                    "pv": _metrics(economics.pv),
+                    "package": _metrics(economics.package),
+                    "incremental_battery": _metrics(economics.incremental_battery),
+                },
+            })
+        return {
+            "scenarios": scenarios,
+            "distribution": {
+                "complete_year_count": len(plant_years), "minimum_kwh": ordered[0],
+                "median_kwh": ordered[median_rank - 1], "maximum_kwh": ordered[-1],
+            },
+            "source_period": metadata.source_period,
+            "radiation_database": metadata.radiation_database,
+            "api_endpoint": metadata.api_endpoint,
+            "retrieved_at": metadata.retrieved_at.isoformat(),
+            "quantile_method": "Nearest rank: rank = ceil(p × n), sorted by annual AC production then calendar year; p = 0.10, 0.50, 0.90.",
+            "leap_day_normalization": metadata.leap_day_normalization,
+            "notice": "Historical weather range from real years; not a forecast or guarantee. Degradation, soiling and additional shading are not mixed into year selection.",
+        }
 
     @staticmethod
     def _surface(item):
@@ -204,6 +316,23 @@ def _scenario(value):
         "battery_losses_kwh", "feed_in_kwh", "curtailed_pv_kwh",
         "curtailment_ratio", "grid_import_kwh", "self_consumption_ratio",
         "autonomy_ratio", "equivalent_full_cycles")}
+
+
+def _first_year(value):
+    return {
+        "without_pv": _scenario(value.without_pv),
+        "pv_only": _scenario(value.pv_only),
+        "pv_with_battery": (_scenario(value.pv_with_battery)
+                            if value.pv_with_battery else None),
+    }
+
+
+def _metrics(value):
+    metrics = value.metrics
+    return {"available": metrics.available,
+            "nominal_total_eur": metrics.nominal_total_eur,
+            "net_present_value_eur": metrics.net_present_value_eur,
+            "payback_years": metrics.payback_years}
 
 
 def _economics(value):

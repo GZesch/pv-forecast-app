@@ -12,12 +12,17 @@ from .simulation import calculate_energy_scenarios
 from .pv_generation import (
     ConstantShading, MonthlyHourlyShading, PVGenerationError, PVPlantResult,
     PVSurface, PVSurfaceResult, calculate_pv_plant, calculate_pv_surface,
+    calculate_pv_surface_from_poa,
 )
 from .pvgis import (
-    PVGISError, PVGISResponseError, PVGISTMYClient, PVGISTemporaryError,
-    PVGISTimeoutError,
+    PVGISError, PVGISHistoricalClient, PVGISResponseError, PVGISTMYClient,
+    PVGISTemporaryError, PVGISTimeoutError, parse_pvgis_historical,
+    pvgis_series_azimuth,
 )
-from .weather import TMYMetadata, TMYWeather, WeatherDataError, WeatherHour
+from .weather import (
+    HistoricalMetadata, HistoricalPOAWeather, HistoricalYear, POAWeatherHour,
+    TMYMetadata, TMYWeather, WeatherDataError, WeatherHour,
+)
 from .load_profiles import (
     H25DataUnavailableError, LoadProfileError, LoadProfileResult, ProfileKind,
     generate_household_load_profile,
@@ -42,8 +47,11 @@ __all__ = [
     "HourlyEnergyFlow", "ScenarioResult", "calculate_energy_scenarios",
     "ConstantShading", "MonthlyHourlyShading", "PVGenerationError",
     "PVPlantResult", "PVSurface", "PVSurfaceResult", "calculate_pv_plant",
-    "calculate_pv_surface", "PVGISError", "PVGISResponseError",
-    "PVGISTMYClient", "PVGISTemporaryError", "PVGISTimeoutError",
+    "calculate_pv_surface", "calculate_pv_surface_from_poa", "PVGISError",
+    "PVGISHistoricalClient", "PVGISResponseError", "PVGISTMYClient",
+    "PVGISTemporaryError", "PVGISTimeoutError", "parse_pvgis_historical",
+    "pvgis_series_azimuth", "HistoricalMetadata", "HistoricalPOAWeather",
+    "HistoricalYear", "POAWeatherHour",
     "TMYMetadata", "TMYWeather", "WeatherDataError", "WeatherHour",
     "H25DataUnavailableError", "LoadProfileError",
     "LoadProfileResult", "ProfileKind", "generate_household_load_profile",

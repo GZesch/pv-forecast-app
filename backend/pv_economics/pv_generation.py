@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pvlib
 
-from .weather import TMYWeather, WeatherHour
+from .weather import POAWeatherHour, TMYWeather, WeatherHour
 
 BERLIN = ZoneInfo("Europe/Berlin")
 
@@ -151,12 +151,61 @@ def calculate_pv_surface(
                          "sky-diffuse POA")
     ground = _poa_component(poa["poa_ground_diffuse"].to_numpy(), dark,
                             "ground POA")
+    return _calculate_from_poa(
+        surface, times, direct, sky, ground,
+        np.asarray([h.temperature_c for h in hours]),
+        np.asarray([h.wind_speed_m_s for h in hours]),
+    )
+
+
+def calculate_pv_surface_from_poa(
+    hours: tuple[POAWeatherHour, ...], surface: PVSurface,
+) -> PVSurfaceResult:
+    """Calculate AC generation from PVGIS components already transposed to POA."""
+    _validate_surface(surface)
+    if not hours:
+        raise PVGenerationError("Historical POA series must not be empty.")
+    times = pd.DatetimeIndex([hour.timestamp for hour in hours])
+    if times.tz is None or any(stamp.utcoffset() != timedelta(0) for stamp in times):
+        raise PVGenerationError("Historical POA timestamps must be timezone-aware UTC.")
+    if not times.is_monotonic_increasing or times.has_duplicates:
+        raise PVGenerationError("Historical POA timestamps must be unique and chronological.")
+    values = np.asarray([
+        value for hour in hours for value in (
+            hour.direct_poa_w_m2, hour.diffuse_poa_w_m2,
+            hour.ground_reflected_poa_w_m2, hour.temperature_c,
+            hour.wind_speed_m_s,
+        )
+    ], dtype=float)
+    if not np.all(np.isfinite(values)):
+        raise PVGenerationError("Historical POA values must be finite.")
+    if any(hour.direct_poa_w_m2 < 0 or hour.diffuse_poa_w_m2 < 0
+           or hour.ground_reflected_poa_w_m2 < 0 or hour.wind_speed_m_s < 0
+           for hour in hours):
+        raise PVGenerationError("Historical irradiance and wind speed must not be negative.")
+    return _calculate_from_poa(
+        surface, times,
+        np.asarray([hour.direct_poa_w_m2 for hour in hours]),
+        np.asarray([hour.diffuse_poa_w_m2 for hour in hours]),
+        np.asarray([hour.ground_reflected_poa_w_m2 for hour in hours]),
+        np.asarray([hour.temperature_c for hour in hours]),
+        np.asarray([hour.wind_speed_m_s for hour in hours]),
+    )
+
+
+def _calculate_from_poa(surface: PVSurface, times: pd.DatetimeIndex,
+                        direct: np.ndarray, sky: np.ndarray,
+                        ground: np.ndarray, temperature: np.ndarray,
+                        wind: np.ndarray) -> PVSurfaceResult:
+    """Shared shading, thermal, DC, loss and clipping path for all POA sources."""
+    direct = _nonnegative(direct, "direct POA")
+    sky = _nonnegative(sky, "diffuse POA")
+    ground = _nonnegative(ground, "ground-reflected POA")
     shade = np.asarray([_shade_factor(surface.shading, stamp) for stamp in times])
     direct_after = direct * (1 - shade)
     global_after = direct_after + sky + ground
     temp = pvlib.temperature.sapm_cell(
-        global_after, np.asarray([h.temperature_c for h in hours]),
-        np.asarray([h.wind_speed_m_s for h in hours]), -3.47, -0.0594, 3.0,
+        global_after, temperature, wind, -3.47, -0.0594, 3.0,
     )
     dc = pvlib.pvsystem.pvwatts_dc(global_after, temp, surface.peak_power_kwp,
                                    gamma_pdc=-0.004)

@@ -14,6 +14,9 @@ from backend.pv_economics.eeg import EEGTariffError
 from backend.pv_economics.pvgis import (
     PVGISResponseError, PVGISTemporaryError, PVGISTimeoutError,
 )
+from backend.pv_economics.weather import (
+    HistoricalMetadata, HistoricalPOAWeather, HistoricalYear, POAWeatherHour,
+)
 from backend.pv_economics_api_models import PVEconomicsRequest
 from backend.services.pv_economics import PVEconomicsService
 
@@ -176,6 +179,15 @@ def test_endpoint_maps_pvgis_failures(monkeypatch, error, status):
     assert "52.5" not in response.text
 
 
+def test_endpoint_hides_unexpected_internal_errors(monkeypatch):
+    monkeypatch.setattr(main_module, "pv_economics_service",
+                        StubService(error=RuntimeError("secret internal detail")))
+    with TestClient(app) as client:
+        response = client.post("/pv-economics/calculate", json=request_payload())
+    assert response.status_code == 500
+    assert "secret" not in response.text
+
+
 def test_invalid_request_returns_422_without_service_call():
     with TestClient(app) as client:
         response = client.post("/pv-economics/calculate", json=request_payload(pv_surfaces=[]))
@@ -234,3 +246,68 @@ def test_invalid_battery_degradation_fields_return_422(battery):
         response = client.post("/pv-economics/calculate",
                                json=request_payload(battery=battery))
     assert response.status_code == 422
+
+
+class HistoricalSpy:
+    def __init__(self, fail=False):
+        self.calls = 0
+        self.fail = fail
+
+    async def fetch(self, latitude, longitude, *, tilt_deg, azimuth_deg):
+        self.calls += 1
+        if self.fail:
+            raise AssertionError("Historical adapter must not be called")
+        stamp = datetime(2001, 1, 1, tzinfo=timezone.utc)
+        years = tuple(HistoricalYear(year, (
+            POAWeatherHour(stamp, year - 2000, 0, 0, 20, 2),
+            POAWeatherHour(stamp.replace(hour=1), year - 2000, 0, 0, 20, 2),
+        )) for year in range(2005, 2015))
+        return HistoricalPOAWeather(latitude, longitude, years,
+            HistoricalMetadata("PVGIS-SARAH3", "2005-2014",
+                2005, 2014,
+                datetime(2026, 1, 1, tzinfo=timezone.utc), "mock-seriescalc",
+                "Complete 29 February removed."))
+
+
+@pytest.mark.anyio
+async def test_weather_flag_false_skips_historical_adapter(monkeypatch):
+    monkeypatch.setattr(service_module, "calculate_pv_plant", lambda weather, surfaces:
+        SimpleNamespace(total_peak_power_kwp=10, annual_ac_energy_kwh=20,
+                        surfaces=(SimpleNamespace(ac_energy_kwh=(10.0, 10.0)),)))
+    spy = HistoricalSpy(fail=True)
+    service = PVEconomicsService(pvgis_client=FakePVGIS(), historical_client=spy,
+                                 load_provider=fake_load, h25_csv_path="unused")
+    response = await service.calculate(PVEconomicsRequest.model_validate(request_payload(
+        pv_surfaces=[request_payload()["pv_surfaces"][0]])))
+    assert spy.calls == 0
+    assert response.weather_sensitivity is None
+
+
+@pytest.mark.anyio
+async def test_weather_flag_true_returns_three_scenarios_without_hours(monkeypatch):
+    monkeypatch.setattr(service_module, "calculate_pv_plant", lambda weather, surfaces:
+        SimpleNamespace(total_peak_power_kwp=10, annual_ac_energy_kwh=20,
+                        surfaces=(SimpleNamespace(ac_energy_kwh=(10.0, 10.0)),)))
+    monkeypatch.setattr(service_module, "calculate_pv_surface_from_poa",
+        lambda hours, surface: SimpleNamespace(
+            ac_energy_kwh=tuple(hour.direct_poa_w_m2 for hour in hours),
+            annual_ac_energy_kwh=sum(hour.direct_poa_w_m2 for hour in hours)))
+    spy = HistoricalSpy()
+    service = PVEconomicsService(pvgis_client=FakePVGIS(), historical_client=spy,
+                                 load_provider=fake_load, h25_csv_path="unused")
+    data = request_payload(
+        include_weather_sensitivity=True, pv_investment_eur=None,
+        battery_incremental_investment_eur=None, package_investment_eur=14000,
+        assumptions={"years": 2, "pv_operating_cost_year1_eur": 100})
+    response = await service.calculate(PVEconomicsRequest.model_validate(data))
+    assert spy.calls == 2
+    assert [item.label for item in response.weather_sensitivity.scenarios] == [
+        "low", "median", "high"]
+    assert response.weather_sensitivity.distribution.complete_year_count == 10
+    assert response.weather_sensitivity.scenarios[0].annual_pv_generation_kwh == 20
+    assert response.weather_sensitivity.scenarios[0].first_year["pv_with_battery"] is not None
+    assert (response.weather_sensitivity.scenarios[0].first_year["pv_with_battery"]["feed_in_kwh"]
+            != response.weather_sensitivity.scenarios[2].first_year["pv_with_battery"]["feed_in_kwh"])
+    assert not response.weather_sensitivity.scenarios[0].economics.pv.available
+    assert response.weather_sensitivity.scenarios[0].economics.package.available
+    assert "hourly" not in response.model_dump_json()

@@ -40,3 +40,42 @@ class TMYWeather:
     longitude: float
     hours: tuple[WeatherHour, ...]
     metadata: TMYMetadata
+
+
+@dataclass(frozen=True, slots=True)
+class POAWeatherHour:
+    """One UTC hour with irradiance already transposed to a PV surface."""
+
+    timestamp: datetime
+    direct_poa_w_m2: float
+    diffuse_poa_w_m2: float
+    ground_reflected_poa_w_m2: float
+    temperature_c: float
+    wind_speed_m_s: float
+
+
+@dataclass(frozen=True, slots=True)
+class HistoricalYear:
+    """One real source year normalized to canonical non-leap calendar positions."""
+
+    source_year: int
+    hours: tuple[POAWeatherHour, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class HistoricalMetadata:
+    radiation_database: str
+    source_period: str
+    source_start_year: int
+    source_end_year: int
+    retrieved_at: datetime
+    api_endpoint: str
+    leap_day_normalization: str
+
+
+@dataclass(frozen=True, slots=True)
+class HistoricalPOAWeather:
+    latitude: float
+    longitude: float
+    years: tuple[HistoricalYear, ...]
+    metadata: HistoricalMetadata

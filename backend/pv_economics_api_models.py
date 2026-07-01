@@ -113,6 +113,51 @@ class PVEconomicsRequest(BaseModel):
     package_investment_eur: float | None = Field(default=None, ge=0)
     assumptions: ExpertAssumptionsInput = Field(default_factory=ExpertAssumptionsInput)
     one_time_costs: list[CostEventInput] = Field(default_factory=list)
+    include_weather_sensitivity: bool = False
+
+
+class WeatherFinancialMetrics(BaseModel):
+    available: bool
+    nominal_total_eur: float | None
+    net_present_value_eur: float | None
+    payback_years: float | None
+
+
+class WeatherScenarioEconomics(BaseModel):
+    pv: WeatherFinancialMetrics
+    package: WeatherFinancialMetrics
+    incremental_battery: WeatherFinancialMetrics
+
+
+class WeatherSensitivityScenario(BaseModel):
+    label: Literal["low", "median", "high"]
+    display_label: str
+    source_year: int
+    quantile: float
+    nearest_rank: int
+    annual_pv_generation_kwh: float
+    deviation_from_tmy_percent: float | None
+    first_year: dict[str, object]
+    economics: WeatherScenarioEconomics
+
+
+class WeatherSensitivityDistribution(BaseModel):
+    complete_year_count: int
+    minimum_kwh: float
+    median_kwh: float
+    maximum_kwh: float
+
+
+class WeatherSensitivityResponse(BaseModel):
+    scenarios: list[WeatherSensitivityScenario]
+    distribution: WeatherSensitivityDistribution
+    source_period: str
+    radiation_database: str
+    api_endpoint: str
+    retrieved_at: str
+    quantile_method: str
+    leap_day_normalization: str
+    notice: str
 
 
 class PVEconomicsResponse(BaseModel):
@@ -122,3 +167,4 @@ class PVEconomicsResponse(BaseModel):
     feed_in_limit_comparison: dict[str, object]
     warnings: list[dict[str, object]]
     disclaimers: list[str]
+    weather_sensitivity: WeatherSensitivityResponse | None = None

@@ -1,14 +1,20 @@
 """Async infrastructure adapter for the official PVGIS 5.3 TMY API."""
 
 from datetime import datetime, timedelta, timezone
+from collections import defaultdict
+from calendar import isleap
 from math import isfinite
 from typing import Any
 
 import httpx
 
-from .weather import TMYMetadata, TMYWeather, WeatherDataError, WeatherHour
+from .weather import (
+    HistoricalMetadata, HistoricalPOAWeather, HistoricalYear, POAWeatherHour,
+    TMYMetadata, TMYWeather, WeatherDataError, WeatherHour,
+)
 
 PVGIS_TMY_URL = "https://re.jrc.ec.europa.eu/api/v5_3/tmy"
+PVGIS_SERIES_URL = "https://re.jrc.ec.europa.eu/api/v5_3/seriescalc"
 CANONICAL_TMY_YEAR = 2001
 EXPECTED_HOURS = 8760
 NEGATIVE_IRRADIANCE_TOLERANCE = -0.1
@@ -73,6 +79,159 @@ class PVGISTMYClient:
             return parse_pvgis_tmy(payload, latitude, longitude, self.base_url)
         except WeatherDataError as exc:
             raise PVGISResponseError(str(exc)) from exc
+
+
+def pvgis_series_azimuth(exergypulse_azimuth_deg: float) -> float:
+    """Convert north-clockwise azimuth to PVGIS south-zero (-90 east, +90 west)."""
+    if not isfinite(exergypulse_azimuth_deg) or not 0 <= exergypulse_azimuth_deg <= 360:
+        raise PVGISError("PV surface azimuth is outside the valid range.")
+    converted = (exergypulse_azimuth_deg - 180 + 180) % 360 - 180
+    return -180.0 if converted == 180 else float(converted)
+
+
+class PVGISHistoricalClient:
+    """Fetch non-persistent, surface-specific SARAH3 seriescalc data."""
+
+    def __init__(self, *, base_url: str = PVGIS_SERIES_URL,
+                 client: httpx.AsyncClient | None = None,
+                 timeout_seconds: float = 60.0,
+                 start_year: int = 2005, end_year: int = 2023) -> None:
+        self.base_url = base_url
+        self._client = client
+        self.timeout_seconds = timeout_seconds
+        self.start_year = start_year
+        self.end_year = end_year
+
+    async def fetch(self, latitude: float, longitude: float, *,
+                    tilt_deg: float, azimuth_deg: float) -> HistoricalPOAWeather:
+        _validate_coordinates(latitude, longitude)
+        if not isfinite(tilt_deg) or not 0 <= tilt_deg <= 90:
+            raise PVGISError("PV surface tilt is outside the valid range.")
+        params = {
+            "lat": latitude, "lon": longitude, "raddatabase": "PVGIS-SARAH3",
+            "usehorizon": 1, "startyear": self.start_year, "endyear": self.end_year,
+            "pvcalculation": 0, "components": 1, "outputformat": "json",
+            "angle": tilt_deg, "aspect": pvgis_series_azimuth(azimuth_deg),
+        }
+        headers = {"User-Agent": "ExergyPulse-PV-Economics/1.0"}
+        try:
+            if self._client is None:
+                async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                    response = await client.get(self.base_url, params=params, headers=headers)
+            else:
+                response = await self._client.get(self.base_url, params=params,
+                                                  headers=headers, timeout=self.timeout_seconds)
+        except httpx.TimeoutException as exc:
+            raise PVGISTimeoutError("PVGIS historical request timed out.") from exc
+        except httpx.RequestError as exc:
+            raise PVGISError("PVGIS historical data is currently unreachable.") from exc
+        if response.status_code == 529:
+            raise PVGISTemporaryError("PVGIS is temporarily overloaded; retry later.")
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise PVGISError(f"PVGIS returned HTTP status {response.status_code}.") from exc
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise PVGISResponseError("PVGIS returned invalid JSON.") from exc
+        try:
+            result = parse_pvgis_historical(
+                payload, latitude, longitude, self.base_url)
+        except WeatherDataError as exc:
+            raise PVGISResponseError(str(exc)) from exc
+        expected_years = tuple(range(self.start_year, self.end_year + 1))
+        actual_years = tuple(year.source_year for year in result.years)
+        if actual_years != expected_years:
+            raise PVGISResponseError(
+                "PVGIS historical response does not cover the exact requested period."
+            )
+        if (result.metadata.source_start_year != self.start_year
+                or result.metadata.source_end_year != self.end_year):
+            raise PVGISResponseError(
+                "PVGIS historical period metadata does not match the requested period."
+            )
+        return result
+
+
+def parse_pvgis_historical(payload: Any, latitude: float, longitude: float,
+                           endpoint: str = PVGIS_SERIES_URL, *,
+                           retrieved_at: datetime | None = None) -> HistoricalPOAWeather:
+    """Validate complete real years and remove only all 24 hours of 29 February."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("outputs"), dict):
+        raise WeatherDataError("PVGIS historical response is missing outputs.")
+    rows = payload["outputs"].get("hourly")
+    if not isinstance(rows, list) or not rows:
+        raise WeatherDataError("PVGIS historical response contains no hourly data.")
+    grouped: dict[int, list[tuple[datetime, POAWeatherHour]]] = defaultdict(list)
+    for row in rows:
+        if not isinstance(row, dict):
+            raise WeatherDataError("PVGIS historical response contains an invalid row.")
+        try:
+            stamp = datetime.strptime(str(row["time"]), "%Y%m%d:%H%M").replace(tzinfo=timezone.utc)
+            direct = _historical_irradiance(row["Gb(i)"], "direct POA")
+            diffuse = _historical_irradiance(row["Gd(i)"], "diffuse POA")
+            ground = _historical_irradiance(row["Gr(i)"], "ground-reflected POA")
+            temperature = _finite(row["T2m"], "temperature")
+            wind = _finite(row["WS10m"], "wind speed")
+        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, WeatherDataError):
+                raise
+            raise WeatherDataError("PVGIS historical row has missing or invalid fields.") from exc
+        if wind < 0:
+            raise WeatherDataError("PVGIS historical wind speed must not be negative.")
+        grouped[stamp.year].append((stamp, POAWeatherHour(stamp, direct, diffuse,
+                                                         ground, temperature, wind)))
+    years: list[HistoricalYear] = []
+    for year, values in sorted(grouped.items()):
+        expected_count = 8784 if isleap(year) else 8760
+        stamps = [stamp for stamp, _ in values]
+        if len(values) != expected_count or len(set(stamps)) != expected_count or stamps != sorted(stamps):
+            raise WeatherDataError(f"PVGIS historical year {year} is incomplete or duplicated.")
+        minute = stamps[0].minute
+        expected = [datetime(year, 1, 1, 0, minute, tzinfo=timezone.utc) + i * _ONE_HOUR
+                    for i in range(expected_count)]
+        if stamps != expected:
+            raise WeatherDataError(f"PVGIS historical year {year} contains gaps or invalid positions.")
+        if isleap(year):
+            leap_hours = [item for item in values if item[0].month == 2 and item[0].day == 29]
+            if len(leap_hours) != 24:
+                raise WeatherDataError(f"PVGIS leap year {year} lacks a complete 29 February.")
+            values = [item for item in values if not (item[0].month == 2 and item[0].day == 29)]
+        normalized = tuple(POAWeatherHour(
+            hour.timestamp.replace(year=CANONICAL_TMY_YEAR), hour.direct_poa_w_m2,
+            hour.diffuse_poa_w_m2, hour.ground_reflected_poa_w_m2,
+            hour.temperature_c, hour.wind_speed_m_s) for _, hour in values)
+        if len(normalized) != EXPECTED_HOURS:
+            raise WeatherDataError(f"PVGIS historical year {year} did not normalize to 8,760 hours.")
+        years.append(HistoricalYear(year, normalized))
+    inputs = payload.get("inputs") if isinstance(payload.get("inputs"), dict) else {}
+    meteo = inputs.get("meteo_data") if isinstance(inputs.get("meteo_data"), dict) else {}
+    database = str(meteo.get("radiation_db", "")).strip()
+    if database != "PVGIS-SARAH3":
+        raise WeatherDataError("PVGIS historical response does not confirm PVGIS-SARAH3.")
+    source_period = _source_period(meteo, payload.get("meta") if isinstance(payload.get("meta"), dict) else {})
+    try:
+        period_start = int(meteo.get("year_min", min(grouped)))
+        period_end = int(meteo.get("year_max", max(grouped)))
+    except (TypeError, ValueError) as exc:
+        raise WeatherDataError("PVGIS historical source period is invalid.") from exc
+    if set(grouped) != set(range(period_start, period_end + 1)):
+        raise WeatherDataError("PVGIS historical response omits one or more complete years.")
+    if source_period is None:
+        source_period = f"{min(grouped)}-{max(grouped)}"
+    metadata = HistoricalMetadata(database, source_period,
+        period_start, period_end,
+        retrieved_at or datetime.now(timezone.utc), endpoint,
+        "Complete 29 February removed; remaining UTC calendar positions mapped to canonical year 2001.")
+    return HistoricalPOAWeather(latitude, longitude, tuple(years), metadata)
+
+
+def _historical_irradiance(value: Any, label: str) -> float:
+    number = _finite(value, label)
+    if number < 0:
+        raise WeatherDataError(f"PVGIS historical {label} must not be negative.")
+    return number
 
 
 def parse_pvgis_tmy(
