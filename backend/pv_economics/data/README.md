@@ -1,6 +1,7 @@
 # BDEW H25 source-data status
 
-No H25 value table is stored in this directory.
+No H25 value table is stored in this directory. Source and converted files are
+explicitly ignored by Git and must remain external.
 
 The official BDEW application guide, *Hinweise zu den aktualisierten
 Standardlastprofilen Strom*, dated 17 March 2025, was reviewed at:
@@ -12,17 +13,27 @@ required dynamisation, and the moderate prosumer influence of its 2018/2019
 source data. The guide does not contain the 3,456 quarter-hour values as a
 machine-readable table. The dynamisation formula is graphical in the PDF.
 
-As of 1 July 2026, no official BDEW H25 value file with sufficiently clear
-redistribution or licensing terms could be located. Therefore no values were
-copied from third-party websites, screenshots, diagrams, academic appendices,
-or the old H0 profile. No checksum is recorded because no source data file was
-accepted or transformed.
+The official workbook was subsequently verified from this BDEW download URL:
 
-`load_profiles.parse_bdew_h25_csv` defines and validates the future normalized
-CSV format. Before adding a data file, record its exact official download URL,
-publication version, original format, license/usage terms, original SHA-256,
-conversion procedure, and converted-file SHA-256 here. The official formula
-and its rounding rules must likewise be transcribed from a verifiable original.
+https://www.bdew.de/media/documents/Kopie_von_Repr%C3%A4sentative_Profile_BDEW_H25_G25_L25_P25_S25_Ver%C3%B6ffentlichung.xlsx
 
-Until then, generation deliberately raises `H25DataUnavailableError`. This also
-prevents synthetic ExergyPulse scenarios from being presented as H25-derived.
+Verified original SHA-256:
+`1803D4C612693563A784EB61001E7C58FFD6BD18A6BCA3780F774F3C3459B845`.
+
+The workbook contains the complete 12 × 3 × 96 H25 matrix and the official
+dynamisation polynomial. It contains no explicit redistribution license. For
+that reason neither the original workbook nor converted values are committed.
+
+Run the local, network-free converter with explicit paths:
+
+```text
+uv run python scripts/convert_bdew_h25.py INPUT.xlsx OUTPUT.csv
+```
+
+It verifies the original checksum and workbook structure, creates deterministic
+UTF-8 CSV, and prints both checksums. Supply the generated CSV path and printed
+CSV checksum explicitly to `generate_household_load_profile`.
+
+Generation remains fail-closed without a validated external CSV. Synthetic
+ExergyPulse scenarios are transformations of that validated H25 basis and are
+clearly labelled as scenarios rather than measurements.

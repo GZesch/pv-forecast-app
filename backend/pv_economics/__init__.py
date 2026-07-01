@@ -19,7 +19,8 @@ from .pvgis import (
 )
 from .weather import TMYMetadata, TMYWeather, WeatherDataError, WeatherHour
 from .load_profiles import (
-    H25DataUnavailableError, LoadProfileError, generate_household_load_profile,
+    H25DataUnavailableError, LoadProfileError, LoadProfileResult, ProfileKind,
+    generate_household_load_profile,
 )
 
 __all__ = [
@@ -31,5 +32,5 @@ __all__ = [
     "PVGISTMYClient", "PVGISTemporaryError", "PVGISTimeoutError",
     "TMYMetadata", "TMYWeather", "WeatherDataError", "WeatherHour",
     "H25DataUnavailableError", "LoadProfileError",
-    "generate_household_load_profile",
+    "LoadProfileResult", "ProfileKind", "generate_household_load_profile",
 ]
