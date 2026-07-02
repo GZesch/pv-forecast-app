@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { buildRequest, FieldErrors, FormValues, halfCPower, normalizeApiError, resolveInvestments, SurfaceForm, tariffNeedsManual, validateForm } from "@/lib/pv-economics";
 import { isPVEconomicsResponse, PVEconomicsResponse } from "@/lib/pv-economics-response";
 import { PVEconomicsResults } from "./pv-economics-results";
+import { LoadProfilePreview } from "./load-profile-preview";
 import styles from "./pv-economics-form.module.css";
 
 const states = [["BW","Baden-Württemberg"],["BY","Bayern"],["BE","Berlin"],["BB","Brandenburg"],["HB","Bremen"],["HH","Hamburg"],["HE","Hessen"],["MV","Mecklenburg-Vorpommern"],["NI","Niedersachsen"],["NW","Nordrhein-Westfalen"],["RP","Rheinland-Pfalz"],["SL","Saarland"],["SN","Sachsen"],["ST","Sachsen-Anhalt"],["SH","Schleswig-Holstein"],["TH","Thüringen"]];
@@ -75,7 +76,7 @@ export function PVEconomicsForm() {
       <label className={styles.field}><span>Inbetriebnahmedatum</span><input type="date" value={v.commissioningDate} onChange={e=>set("commissioningDate",e.target.value)} aria-invalid={!!errors.commissioningDate} aria-describedby={errors.commissioningDate?"commissioningDate-error":undefined}/>{err("commissioningDate")}</label>
     </div>
     <label className={styles.field}><span>Lastprofil</span><select value={v.profileKind} onChange={e=>set("profileKind",e.target.value)}><option value="h25">BDEW H25 (Standard)</option><option value="exergypulse_daytime">ExergyPulse Tagesprofil (synthetisch)</option><option value="exergypulse_evening">ExergyPulse Abendprofil (synthetisch)</option><option value="exergypulse_flatter">ExergyPulse gleichmäßigeres Profil (synthetisch)</option></select></label>
-    <p className={styles.help}>ExergyPulse-Profile sind synthetische Modellprofile. Wärmepumpe und Elektroauto werden nicht separat modelliert; ihr Verbrauch kann nur im Jahresverbrauch enthalten sein.</p></fieldset>
+    <LoadProfilePreview kind={v.profileKind}/></fieldset>
 
     <fieldset className={styles.card}><legend>B. PV-Anlage</legend>{err("surfaces")}{v.surfaces.map((s,i)=><section className={styles.subcard} key={s.key}><div className={styles.subhead}><h2>Teilfläche {i+1}</h2>{i>0&&<button type="button" className={styles.quiet} onClick={()=>set("surfaces",v.surfaces.filter((_,n)=>n!==i))}>Teilfläche entfernen</button>}</div><div className={styles.grid}>
       <label className={styles.field}><span>Bezeichnung</span><input value={s.identifier} maxLength={100} onChange={e=>updateSurface(i,{identifier:e.target.value})} aria-invalid={!!errors[`surfaces.${i}.identifier`]} aria-describedby={errors[`surfaces.${i}.identifier`]?`surfaces.${i}.identifier-error`:undefined}/>{err(`surfaces.${i}.identifier`)}</label>

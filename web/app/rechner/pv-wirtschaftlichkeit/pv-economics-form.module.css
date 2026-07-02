@@ -16,6 +16,21 @@
 .locationWarning { border-left: 4px solid #a4382b; background: #fff5f3; }
 .locationSelected p, .locationWarning p { margin: .35rem 0; }
 .locationSelected details, .locationWarning details { margin-top: .6rem; color: var(--muted); font-size: .9rem; }
+.profilePreview { margin-top: 1rem; padding: clamp(1rem,2vw,1.4rem); border: 1px solid var(--line); border-radius: var(--radius); background: var(--mint-light); }
+.profileIntro { display: grid; gap: 1rem; }
+.profileIntro h3 { margin: .15rem 0 .45rem; font-size: 1.25rem; }
+.profileIntro p { margin: 0; color: var(--ink-soft); }
+.profileIntro ul { display: grid; gap: .4rem; margin: 0; padding-left: 1.2rem; color: var(--ink-soft); font-size: .92rem; }
+.profileKicker { color: var(--forest) !important; font-size: .78rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.profilePlots { display: grid; gap: .75rem; margin-top: 1.2rem; }
+.profilePlot { min-width: 0; margin: 0; padding: .8rem; border: 1px solid var(--line); border-radius: .6rem; background: #fff; }
+.profilePlot figcaption { display: grid; gap: .15rem; }
+.profilePlot figcaption span { color: var(--muted); font-size: .8rem; }
+.profilePlot svg { display: block; width: 100%; margin-top: .4rem; overflow: visible; color: var(--muted); font-size: 10px; }
+.profileAxis { stroke: #9bada7; stroke-width: 1; }
+.profileArea { fill: rgba(20,104,86,.12); stroke: none; }
+.profileLine { fill: none; stroke: var(--forest); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.profileCaption { margin: .8rem 0 0; color: var(--muted); font-size: .8rem; }
 .field { display: grid; align-content: start; gap: .3rem; color: var(--ink-soft); font-weight: 700; }
 .field small { color: var(--muted); font-weight: 500; }
 .field input, .field select, .inner select { width: 100%; min-height: 2.8rem; padding: .55rem .7rem; border: 1px solid #aebfba; border-radius: .45rem; color: var(--ink); background: #fff; }
@@ -57,5 +72,5 @@
 .metadata div { display: grid; grid-template-columns: minmax(8rem, 1fr) 2fr; gap: .5rem; }
 .metadata dt { color: var(--muted); text-transform: capitalize; }
 .metadata dd { margin: 0; overflow-wrap: anywhere; }
-@media (min-width: 42rem) { .grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .locationSearch { grid-template-columns: minmax(0,1fr) auto; } }
-@media (min-width: 62rem) { .grid { grid-template-columns: repeat(3,minmax(0,1fr)); } }
+@media (min-width: 42rem) { .grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .locationSearch { grid-template-columns: minmax(0,1fr) auto; } .profileIntro { grid-template-columns:minmax(0,1fr) minmax(0,1.2fr); } }
+@media (min-width: 62rem) { .grid { grid-template-columns: repeat(3,minmax(0,1fr)); } .profilePlots { grid-template-columns:repeat(3,minmax(0,1fr)); } }
