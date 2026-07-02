@@ -56,12 +56,30 @@
 .toggle input, .inner input { width: 1.2rem; height: 1.2rem; }
 .warning { padding: .8rem 1rem; border-radius: .5rem; color: #604d1f; background: #fff1c9; }
 .resolution { padding: .8rem 1rem; border-radius: .5rem; color: var(--forest); background: var(--mint); font-weight: 700; }
+.shadingEditor { display: grid; gap: 1rem; }
+.shadingExplanation { display: grid; gap: 1rem; padding: 1rem; border-radius: .6rem; background: #fff; }
+.shadingExplanation h3, .bulkEditor h3 { margin: 0 0 .35rem; font-size: 1rem; }
+.shadingExplanation p { margin: 0; color: var(--muted); font-size: .9rem; }
+.bulkEditor { padding: 1rem; border: 1px solid var(--line); border-radius: .6rem; background: var(--paper); }
+.monthPresets, .bulkActions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.monthPresets { margin: .75rem 0; }
+.monthPresets button { min-height: 2.4rem; padding: .4rem .7rem; cursor: pointer; border: 1px solid #a9beb5; border-radius: .4rem; color: var(--forest); background: #fff; font-weight: 700; }
+.monthChecks { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .4rem .8rem; }
+.monthChecks label { display: flex; align-items: center; gap: .4rem; min-height: 2rem; }
+.monthChecks small { color: #8b342b; font-size: .72rem; }
+.bulkFields { display: grid; gap: .75rem; margin: 1rem 0; }
+.bulkActions { margin-top: .75rem; }
+.bulkActions .add { margin: 0; }
+.matrixLegend { display: flex; align-items: center; justify-content: flex-end; gap: .45rem; color: var(--muted); font-size: .78rem; }
+.legendGradient { width: 5rem; height: .8rem; border: 1px solid var(--line); background: linear-gradient(90deg,#fff,var(--sun)); }
+.nightKey { width: .8rem; height: .8rem; margin-left: .5rem; border: 1px solid var(--line); background: #e5e9e7; }
 .matrixWrap { max-width: 100%; overflow-x: auto; border: 1px solid var(--line); background: var(--paper); }
 .matrixWrap table { border-collapse: collapse; font-size: .78rem; }
 .matrixWrap caption { padding: .7rem; font-weight: 800; text-align: left; }
 .matrixWrap th { position: sticky; left: 0; z-index: 1; min-width: 6.5rem; padding: .3rem; background: var(--mint-light); }
 .matrixWrap td { padding: .15rem; border: 1px solid var(--line); }
 .matrixWrap td input { width: 3.7rem; padding: .3rem; border: 1px solid #aebfba; }
+.matrixWrap .nightCell { min-width: 3.7rem; color: #71807b; background: #e5e9e7; text-align: center; }
 .submit { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin: 2rem 0; }
 .calculateOptions { margin-top: 2rem; padding: 1rem 1.2rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--mint-light); }
 .submit button:disabled { cursor: wait; opacity: .7; }
@@ -72,5 +90,5 @@
 .metadata div { display: grid; grid-template-columns: minmax(8rem, 1fr) 2fr; gap: .5rem; }
 .metadata dt { color: var(--muted); text-transform: capitalize; }
 .metadata dd { margin: 0; overflow-wrap: anywhere; }
-@media (min-width: 42rem) { .grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .locationSearch { grid-template-columns: minmax(0,1fr) auto; } .profileIntro { grid-template-columns:minmax(0,1fr) minmax(0,1.2fr); } }
+@media (min-width: 42rem) { .grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .locationSearch { grid-template-columns: minmax(0,1fr) auto; } .profileIntro { grid-template-columns:minmax(0,1fr) minmax(0,1.2fr); } .monthChecks { grid-template-columns:repeat(4,minmax(0,1fr)); } .bulkFields { grid-template-columns:repeat(3,minmax(0,1fr)); } .shadingExplanation { grid-template-columns:minmax(0,1fr) auto; align-items:start; } }
 @media (min-width: 62rem) { .grid { grid-template-columns: repeat(3,minmax(0,1fr)); } .profilePlots { grid-template-columns:repeat(3,minmax(0,1fr)); } }
