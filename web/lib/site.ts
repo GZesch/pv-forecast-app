@@ -1,10 +1,20 @@
+export function normalizePublicUrl(value: string | undefined, fallback: string): string {
+  const configuredValue = value?.trim() || fallback;
+  const normalizedValue = /^https?:\/\//i.test(configuredValue)
+    ? configuredValue
+    : `https://${configuredValue}`;
+
+  new URL(normalizedValue);
+  return normalizedValue;
+}
+
 export const siteConfig = {
   name: "ExergyPulse",
   claim: "Energie verstehen. Selbstbestimmt entscheiden.",
   title: "ExergyPulse – Energie verstehen. Selbstbestimmt entscheiden.",
   description:
     "Neutrales Wissen und transparente Rechner rund um Solarenergie, Speicher und Stromtarife.",
-  url: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
+  url: normalizePublicUrl(process.env.NEXT_PUBLIC_SITE_URL, "http://localhost:3000"),
 };
 
 export const mainNavigation = [

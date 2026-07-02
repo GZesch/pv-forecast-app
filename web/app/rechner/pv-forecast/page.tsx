@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
 import { ComingSoon } from "@/components/coming-soon";
+import { normalizePublicUrl } from "@/lib/site";
+
 export const metadata: Metadata = { title: "PV-Forecast", description: "Wetterbasierte PV-Ertragsprognose im bestehenden Rechner öffnen.", alternates: { canonical: "/rechner/pv-forecast" } };
-export default function Page() { return <ComingSoon title="PV-Forecast" description="Eine wetterbasierte Prognose für den erwarteten Ertrag deiner Photovoltaikanlage – nachvollziehbar und ohne dauerhafte Speicherung für Gäste." icon="forecast" points={["Standort, Leistung, Ausrichtung und Neigung berücksichtigen", "Stündliche und tägliche Ertragsprognose darstellen", "Wettergrundlage und Berechnungsannahmen offenlegen", "Vollständig ohne Account nutzbar sein"]} externalCalculatorUrl={process.env.NEXT_PUBLIC_PV_FORECAST_URL ?? "http://localhost"} />; }
+
+export default function Page() { return <ComingSoon title="PV-Forecast" description="Eine wetterbasierte Prognose für den erwarteten Ertrag deiner Photovoltaikanlage – nachvollziehbar und ohne dauerhafte Speicherung für Gäste." icon="forecast" points={["Standort, Leistung, Ausrichtung und Neigung berücksichtigen", "Stündliche und tägliche Ertragsprognose darstellen", "Wettergrundlage und Berechnungsannahmen offenlegen", "Vollständig ohne Account nutzbar sein"]} externalCalculatorUrl={normalizePublicUrl(process.env.NEXT_PUBLIC_PV_FORECAST_URL, "http://localhost")} />; }
