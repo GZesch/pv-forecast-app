@@ -18,6 +18,7 @@ PVGIS_SERIES_URL = "https://re.jrc.ec.europa.eu/api/v5_3/seriescalc"
 CANONICAL_TMY_YEAR = 2001
 EXPECTED_HOURS = 8760
 NEGATIVE_IRRADIANCE_TOLERANCE = -0.1
+NEGATIVE_WIND_SPEED_TOLERANCE = -0.1
 _TMY_TIMESTAMP_FIELDS = ("time", "time(UTC)")
 
 
@@ -174,13 +175,11 @@ def parse_pvgis_historical(payload: Any, latitude: float, longitude: float,
             diffuse = _historical_irradiance(row["Gd(i)"], "diffuse POA")
             ground = _historical_irradiance(row["Gr(i)"], "ground-reflected POA")
             temperature = _finite(row["T2m"], "temperature")
-            wind = _finite(row["WS10m"], "wind speed")
+            wind = _wind_speed(row["WS10m"])
         except (KeyError, TypeError, ValueError) as exc:
             if isinstance(exc, WeatherDataError):
                 raise
             raise WeatherDataError("PVGIS historical row has missing or invalid fields.") from exc
-        if wind < 0:
-            raise WeatherDataError("PVGIS historical wind speed must not be negative.")
         grouped[stamp.year].append((stamp, POAWeatherHour(stamp, direct, diffuse,
                                                          ground, temperature, wind)))
     years: list[HistoricalYear] = []
@@ -306,13 +305,11 @@ def _parse_hour(row: Any) -> WeatherHour:
         dni = _irradiance(row["Gb(n)"], "DNI")
         dhi = _irradiance(row["Gd(h)"], "DHI")
         temperature = _finite(row["T2m"], "temperature")
-        wind = _finite(row["WS10m"], "wind speed")
+        wind = _wind_speed(row["WS10m"])
     except (KeyError, TypeError, ValueError) as exc:
         if isinstance(exc, WeatherDataError):
             raise
         raise WeatherDataError("PVGIS TMY contains missing or invalid fields.") from exc
-    if wind < 0:
-        raise WeatherDataError("PVGIS wind speed must not be negative.")
     return WeatherHour(timestamp, ghi, dni, dhi, temperature, wind)
 
 
@@ -341,6 +338,13 @@ def _irradiance(value: Any, label: str) -> float:
     number = _finite(value, label)
     if number < NEGATIVE_IRRADIANCE_TOLERANCE:
         raise WeatherDataError(f"PVGIS {label} is materially negative.")
+    return max(0.0, number)
+
+
+def _wind_speed(value: Any) -> float:
+    number = _finite(value, "wind speed")
+    if number < NEGATIVE_WIND_SPEED_TOLERANCE:
+        raise WeatherDataError("PVGIS wind speed is materially negative.")
     return max(0.0, number)
 
 

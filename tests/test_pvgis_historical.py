@@ -127,6 +127,16 @@ def test_invalid_physical_values_are_rejected(field, value):
         parse_pvgis_historical(data, 50, 8)
 
 
+def test_historical_wind_uses_the_same_negative_tolerance():
+    data = payload()
+    data["outputs"]["hourly"][0]["WS10m"] = -0.08
+    assert parse_pvgis_historical(data, 50, 8).years[0].hours[0].wind_speed_m_s == 0
+
+    data["outputs"]["hourly"][0]["WS10m"] = -0.11
+    with pytest.raises(WeatherDataError, match="materially negative"):
+        parse_pvgis_historical(data, 50, 8)
+
+
 def test_missing_hourly_field_is_rejected():
     data = payload()
     del data["outputs"]["hourly"][0]["Gb(i)"]

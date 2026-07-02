@@ -167,6 +167,16 @@ def test_rejects_incomplete_and_invalid_weather():
         parse_pvgis_tmy(invalid, 50, 8)
 
 
+def test_clamps_tiny_negative_wind_but_rejects_material_negative_wind():
+    data = payload()
+    data["outputs"]["tmy_hourly"][0]["WS10m"] = -0.08
+    assert parse_pvgis_tmy(data, 50, 8).hours[0].wind_speed_m_s == 0
+
+    data["outputs"]["tmy_hourly"][0]["WS10m"] = -0.11
+    with pytest.raises(WeatherDataError, match="materially negative"):
+        parse_pvgis_tmy(data, 50, 8)
+
+
 @pytest.mark.parametrize("months", [
     [{"month": month, "year": 2010} for month in range(1, 12)],
     ([{"month": month, "year": 2010} for month in range(1, 12)]
