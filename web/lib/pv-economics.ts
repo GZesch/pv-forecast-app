@@ -8,6 +8,7 @@ export type SurfaceForm = {
 
 export type FormValues = {
   annualConsumption: string; federalState: string; commissioningDate: string;
+  locationLabel: string; locationCountryCode: string;
   latitude: string; longitude: string; profileKind: string; surfaces: SurfaceForm[];
   batteryEnabled: boolean; batteryCapacity: string; batteryRte: string;
   chargePower: string; dischargePower: string; chargeAutomatic: boolean; dischargeAutomatic: boolean;
@@ -55,8 +56,11 @@ export function tariffNeedsManual(date: string) { return !!date && (date < "2026
 export function validateForm(v: FormValues): FieldErrors {
   const e: FieldErrors = {};
   const check = (key: string, value: string, min: number, max: number, required = true) => { const message = inRange(value, min, max, required); if (message) e[key] = message; };
-  check("annualConsumption", v.annualConsumption, .01, 1e9); check("latitude", v.latitude, -90, 90); check("longitude", v.longitude, -180, 180);
-  if (!v.federalState) e.federalState = "Bitte ein Bundesland auswählen.";
+  check("annualConsumption", v.annualConsumption, .01, 1e9);
+  if (!v.locationLabel) e.location = "Bitte zuerst eine Postleitzahl oder einen Ort suchen und einen Treffer auswählen.";
+  else if (v.locationCountryCode !== "de") e.location = "Der Rechner ist fachlich derzeit nur für Standorte in Deutschland ausgelegt.";
+  else if (!v.federalState) e.location = "Das Bundesland konnte für diesen Standort nicht eindeutig ermittelt werden. Bitte wähle einen anderen Treffer.";
+  else if (inRange(v.latitude, -90, 90) || inRange(v.longitude, -180, 180)) e.location = "Die Koordinaten dieses Standorts konnten nicht verarbeitet werden. Bitte wähle einen anderen Treffer.";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v.commissioningDate) || Number.isNaN(Date.parse(`${v.commissioningDate}T00:00:00Z`))) e.commissioningDate = "Bitte ein gültiges Inbetriebnahmedatum eingeben.";
   if (!v.surfaces.length) e.surfaces = "Mindestens eine PV-Teilfläche ist erforderlich.";
   const ids = new Set<string>();

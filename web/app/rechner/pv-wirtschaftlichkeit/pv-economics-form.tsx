@@ -7,15 +7,18 @@ import { PVEconomicsResults } from "./pv-economics-results";
 import styles from "./pv-economics-form.module.css";
 
 const states = [["BW","Baden-Württemberg"],["BY","Bayern"],["BE","Berlin"],["BB","Brandenburg"],["HB","Bremen"],["HH","Hamburg"],["HE","Hessen"],["MV","Mecklenburg-Vorpommern"],["NI","Niedersachsen"],["NW","Nordrhein-Westfalen"],["RP","Rheinland-Pfalz"],["SL","Saarland"],["SN","Sachsen"],["ST","Sachsen-Anhalt"],["SH","Schleswig-Holstein"],["TH","Thüringen"]];
+const stateName = Object.fromEntries(states);
 const months = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
 const matrix = () => Array.from({length: 12}, () => Array(24).fill("0"));
 const surface = (n: number): SurfaceForm => ({ key: crypto.randomUUID(), identifier: `Teilfläche ${n}`, peakPower: "8", azimuth: "180", tilt: "30", inverterEfficiency: "96", systemLoss: "14", maxAcPower: "", shadingMode: "constant", constantShading: "0", shadingMatrix: matrix() });
-const initial: FormValues = { annualConsumption:"4000", federalState:"", commissioningDate:"2026-06-01", latitude:"51.1657", longitude:"10.4515", profileKind:"h25", surfaces:[surface(1)], batteryEnabled:false, batteryCapacity:"8", batteryRte:"90", chargePower:"4", dischargePower:"4", chargeAutomatic:true, dischargeAutomatic:true, warrantyModel:false, warrantyYears:"10", residualCapacity:"80", warrantyLimitKind:"throughput", warrantedThroughput:"30000", warrantedEfc:"4000", electricityPrice:"35", investments:{pv:"",battery:"",package:""}, manualTariff:"", years:"20", pvDegradation:"0.5", batteryDegradation:"2", electricityGrowth:"2", operatingCostGrowth:"2", discountRate:"3", pvOperatingCost:"", pvOperatingCostAutomatic:true, batteryOperatingCost:"0", postEegValue:"0", feedInLimitKind:"none", feedInLimit:"", feedInLimitYears:"", includeWeatherSensitivity:false };
+const initial: FormValues = { annualConsumption:"4000", federalState:"", commissioningDate:"2026-06-01", locationLabel:"", locationCountryCode:"", latitude:"", longitude:"", profileKind:"h25", surfaces:[surface(1)], batteryEnabled:false, batteryCapacity:"8", batteryRte:"90", chargePower:"4", dischargePower:"4", chargeAutomatic:true, dischargeAutomatic:true, warrantyModel:false, warrantyYears:"10", residualCapacity:"80", warrantyLimitKind:"throughput", warrantedThroughput:"30000", warrantedEfc:"4000", electricityPrice:"35", investments:{pv:"",battery:"",package:""}, manualTariff:"", years:"20", pvDegradation:"0.5", batteryDegradation:"2", electricityGrowth:"2", operatingCostGrowth:"2", discountRate:"3", pvOperatingCost:"", pvOperatingCostAutomatic:true, batteryOperatingCost:"0", postEegValue:"0", feedInLimitKind:"none", feedInLimit:"", feedInLimitYears:"", includeWeatherSensitivity:false };
 const inputNumber = { type: "number", step: "any", inputMode: "decimal" as const };
+type LocationResult = { id:string; label:string; latitude:number; longitude:number; countryCode:string; federalState:string|null };
 
 export function PVEconomicsForm() {
   const [v,setV] = useState<FormValues>(initial), [errors,setErrors] = useState<FieldErrors>({}), [apiErrors,setApiErrors] = useState<string[]>([]);
   const [busy,setBusy] = useState(false), [result,setResult] = useState<PVEconomicsResponse|null>(null); const summary = useRef<HTMLDivElement>(null); const resultRef=useRef<HTMLElement>(null); const formRef=useRef<HTMLFormElement>(null);
+  const [locationQuery,setLocationQuery]=useState(""), [locationResults,setLocationResults]=useState<LocationResult[]>([]), [locationBusy,setLocationBusy]=useState(false), [locationMessage,setLocationMessage]=useState("");
   useEffect(() => { if (result) resultRef.current?.focus(); }, [result]);
   const set = <K extends keyof FormValues>(key: K, value: FormValues[K]) => setV(x => ({...x,[key]:value}));
   const err = (key:string) => errors[key] ? <span className={styles.error} id={`${key}-error`}>{errors[key]}</span> : null;
@@ -28,6 +31,24 @@ export function PVEconomicsForm() {
   };
 
   const changeCapacity = (capacity:string) => setV(x=>({...x,batteryCapacity:capacity,chargePower:x.chargeAutomatic?halfCPower(capacity):x.chargePower,dischargePower:x.dischargeAutomatic?halfCPower(capacity):x.dischargePower}));
+  async function searchLocation() {
+    const query=locationQuery.trim();
+    if(query.length<2){setLocationResults([]);setLocationMessage("Bitte gib mindestens zwei Zeichen ein.");return;}
+    setLocationBusy(true);setLocationResults([]);setLocationMessage("");
+    try {
+      const response=await fetch("/api/geocoding/search",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({query})});
+      const body:unknown=await response.json().catch(()=>null);
+      if(!response.ok||!body||typeof body!=="object"||!("results" in body)||!Array.isArray(body.results)) throw new Error();
+      const found=body.results.filter((item):item is LocationResult=>!!item&&typeof item==="object"&&typeof item.id==="string"&&typeof item.label==="string"&&typeof item.latitude==="number"&&typeof item.longitude==="number"&&typeof item.countryCode==="string"&&(typeof item.federalState==="string"||item.federalState===null));
+      setLocationResults(found);setLocationMessage(found.length?`${found.length} Treffer gefunden. Bitte wähle den passenden Standort.`:"Kein passender Standort gefunden. Ergänze bitte Ort oder Postleitzahl.");
+    } catch {setLocationMessage("Die Standortsuche ist momentan nicht erreichbar. Bitte versuche es später erneut.");}
+    finally {setLocationBusy(false);}
+  }
+  function chooseLocation(location:LocationResult){
+    setV(x=>({...x,locationLabel:location.label,locationCountryCode:location.countryCode,federalState:location.federalState??"",latitude:String(location.latitude),longitude:String(location.longitude)}));
+    setLocationQuery(location.label);setLocationResults([]);setLocationMessage("Standort übernommen.");
+    setErrors(x=>{const next={...x};delete next.location;delete next.latitude;delete next.longitude;return next;});
+  }
   async function submit(event:FormEvent) {
     event.preventDefault(); setResult(null); setApiErrors([]); const found=validateForm(v); setErrors(found);
     if(Object.keys(found).length){ setTimeout(()=>summary.current?.focus(),0); return; }
@@ -40,12 +61,19 @@ export function PVEconomicsForm() {
     {allErrors.length>0&&<div ref={summary} tabIndex={-1} role="alert" className={styles.summary}><h2>Bitte prüfe deine Eingaben</h2><ul>{allErrors.map((x,i)=><li key={`${x}-${i}`}>{x}</li>)}</ul></div>}
     <div className={styles.intro}><p>Die Berechnung ist eine Modellrechnung, keine Beratung oder Ertragsgarantie. Wetterjahre, Lastprofil und Preisannahmen beeinflussen das Ergebnis.</p></div>
 
-    <fieldset className={styles.card}><legend>A. Haushalt und Standort</legend><div className={styles.grid}>
+    <fieldset className={styles.card}><legend>A. Haushalt und Standort</legend>
+    <div className={styles.locationSearch}>
+      <label className={styles.field} htmlFor="location-search"><span>Postleitzahl oder Ort</span><input id="location-search" type="search" autoComplete="postal-code" value={locationQuery} onChange={e=>{setLocationQuery(e.target.value);setV(x=>({...x,locationLabel:"",locationCountryCode:"",federalState:"",latitude:"",longitude:""}));setLocationResults([]);}} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();void searchLocation();}}} aria-invalid={!!errors.location} aria-describedby={`location-help${errors.location?" location-error":""}`}/>{err("location")}</label>
+      <button type="button" className="button button-secondary" onClick={()=>void searchLocation()} disabled={locationBusy}>{locationBusy?"Suche läuft …":"Standort suchen"}</button>
+    </div>
+    <p className={styles.help} id="location-help">Bitte nur Postleitzahl oder Ort eingeben, keine vollständige Privatadresse. Die Suche wird über OpenStreetMap Nominatim ausgeführt.</p>
+    {locationMessage&&<p className={styles.locationStatus} role="status">{locationMessage}</p>}
+    {locationResults.length>0&&<ul className={styles.locationResults} aria-label="Gefundene Standorte">{locationResults.map(location=><li key={location.id}><button type="button" onClick={()=>chooseLocation(location)}>{location.label}</button></li>)}</ul>}
+    {v.locationLabel&&<div className={v.locationCountryCode==="de"?styles.locationSelected:styles.locationWarning} role={v.locationCountryCode==="de"?undefined:"alert"}><strong>{v.locationCountryCode==="de"?"Ausgewählter Standort":"Standort außerhalb Deutschlands"}</strong><p>{v.locationLabel}</p>{v.locationCountryCode==="de"?<p>Bundesland: {stateName[v.federalState]??"nicht eindeutig"}</p>:<p>Für diesen Standort gelten andere rechtliche und tarifliche Rahmenbedingungen. Der Rechner ist derzeit ausschließlich für Deutschland ausgelegt und kann die Berechnung deshalb nicht starten.</p>}<details><summary>Technische Standortdaten</summary><p>Breitengrad {v.latitude}, Längengrad {v.longitude}</p></details></div>}
+    <div className={styles.grid}>
       {field("annualConsumption","Jahresstromverbrauch",v.annualConsumption,x=>set("annualConsumption",x),"kWh/Jahr")}
-      <label className={styles.field}><span>Bundesland</span><select value={v.federalState} onChange={e=>set("federalState",e.target.value)} aria-invalid={!!errors.federalState} aria-describedby={errors.federalState?"federalState-error":undefined}><option value="">Bitte auswählen</option>{states.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select>{err("federalState")}</label>
       <label className={styles.field}><span>Inbetriebnahmedatum</span><input type="date" value={v.commissioningDate} onChange={e=>set("commissioningDate",e.target.value)} aria-invalid={!!errors.commissioningDate} aria-describedby={errors.commissioningDate?"commissioningDate-error":undefined}/>{err("commissioningDate")}</label>
-      {field("latitude","Breitengrad",v.latitude,x=>set("latitude",x))}{field("longitude","Längengrad",v.longitude,x=>set("longitude",x))}
-    </div><p className={styles.help}>Koordinaten werden nur für die Wetterabfrage verwendet; PVGIS erhält keine vollständige Adresse.</p>
+    </div>
     <label className={styles.field}><span>Lastprofil</span><select value={v.profileKind} onChange={e=>set("profileKind",e.target.value)}><option value="h25">BDEW H25 (Standard)</option><option value="exergypulse_daytime">ExergyPulse Tagesprofil (synthetisch)</option><option value="exergypulse_evening">ExergyPulse Abendprofil (synthetisch)</option><option value="exergypulse_flatter">ExergyPulse gleichmäßigeres Profil (synthetisch)</option></select></label>
     <p className={styles.help}>ExergyPulse-Profile sind synthetische Modellprofile. Wärmepumpe und Elektroauto werden nicht separat modelliert; ihr Verbrauch kann nur im Jahresverbrauch enthalten sein.</p></fieldset>
 

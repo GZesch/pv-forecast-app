@@ -121,6 +121,7 @@ export default function Page() {
         <MethodSection id="quellen" title="Quellen und Datenstand">
           <div className={styles.tableWrap}><table><caption>Primärquellen und interne Modellstände</caption><thead><tr><th scope="col">Quelle</th><th scope="col">Verwendung</th><th scope="col">Stand</th><th scope="col">Grenze oder Hinweis</th></tr></thead><tbody>
             <SourceRow name="PVGIS / JRC" href="https://re.jrc.ec.europa.eu/pvg_tools/en/" use="TMY und historische Einstrahlungs-/Wetterdaten" version="PVGIS 5.3, SARAH3" note="Externer Dienst; TMY ist keine Prognose."/>
+            <SourceRow name="OpenStreetMap Nominatim" href="https://nominatim.org/" use="Umwandlung der eingegebenen Postleitzahl oder des Orts in Koordinaten und Bundesland" version="Öffentlicher Nominatim-Dienst" note="Externer Dienst; keine vollständigen Privatadressen eingeben."/>
             <SourceRow name="BDEW H25" href="https://www.bdew.de/media/documents/Kopie_von_Repr%C3%A4sentative_Profile_BDEW_H25_G25_L25_P25_S25_Ver%C3%B6ffentlichung.xlsx" use="Haushalts-Standardlastprofil" version="Quelldatei 17.03.2025" note="Keine Einzelmessung; Quelldatei nicht im Repository."/>
             <SourceRow name="Bundesnetzagentur" href="https://www.bundesnetzagentur.de/DE/Fachthemen/ElektrizitaetundGas/ErneuerbareEnergien/EEG_Foerderung/start.html" use="EEG-Vergütung" version="BNetzA-2026-02-01" note="Nur der dokumentierte Zeitraum; sonst manuelle Eingabe."/>
             <SourceRow name="§ 25 EEG" href="https://www.gesetze-im-internet.de/eeg_2014/__25.html" use="Ende des Vergütungszeitraums" version="Abruf vor Veröffentlichung prüfen" note="Unterjähriges Ende wird im Jahresmodell zeitanteilig vereinfacht."/>
@@ -134,7 +135,7 @@ export default function Page() {
 
         <MethodSection id="datenschutz" title="Datenschutz im Rechner">
           <p>Der PV-Wirtschaftlichkeitsrechner arbeitet stateless: Für diesen Endpunkt sind kein Account und keine Session-ID erforderlich. Eingaben und Ergebnisse werden weder in DuckDB noch im Browser, in einer URL oder als gespeichertes Projekt abgelegt.</p>
-          <p>Request- und Response-Inhalte werden nicht protokolliert. Es gibt keine Anbieterweitergabe und keine Leadvermittlung. Für die Wetterabfrage erhält PVGIS die eingegebenen Koordinaten, aber keine vollständige Adresse.</p>
+          <p>Request- und Response-Inhalte des Rechners werden nicht protokolliert. Es gibt keine Leadvermittlung. Für die Standortsuche wird die eingegebene Postleitzahl oder der Ortsname serverseitig an OpenStreetMap Nominatim übermittelt und das Ergebnis für 24 Stunden im Arbeitsspeicher zwischengespeichert. Deshalb sollen keine vollständigen Privatadressen eingegeben werden. Für die anschließende Wetterabfrage erhält PVGIS nur die ermittelten Koordinaten.</p>
           <p>Diese Beschreibung bezieht sich auf den technisch implementierten Rechnerpfad und ist keine pauschale rechtliche Datenschutzerklärung.</p>
         </MethodSection>
       </div>

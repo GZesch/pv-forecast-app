@@ -5,6 +5,17 @@
 .card { min-width: 0; margin: 0 0 1.5rem; padding: clamp(1rem, 3vw, 2rem); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); box-shadow: 0 8px 24px rgba(17,53,48,.05); }
 .card > legend { padding: 0 .45rem; color: var(--ink); font-size: clamp(1.3rem, 3vw, 1.75rem); font-weight: 800; letter-spacing: -.02em; }
 .grid { display: grid; gap: 1rem; margin: 1rem 0; }
+.locationSearch { display: grid; gap: .75rem; align-items: end; margin-top: 1rem; }
+.locationSearch button { min-height: 2.8rem; }
+.locationStatus { margin: .6rem 0; color: var(--muted); }
+.locationResults { display: grid; gap: .5rem; margin: .75rem 0 1rem; padding: 0; list-style: none; }
+.locationResults button { width: 100%; padding: .8rem 1rem; cursor: pointer; border: 1px solid #a9beb5; border-radius: .5rem; color: var(--ink); background: #fff; text-align: left; }
+.locationResults button:hover { border-color: var(--forest); background: var(--mint-light); }
+.locationSelected, .locationWarning { margin: 1rem 0; padding: 1rem; border-radius: .5rem; background: var(--mint-light); }
+.locationSelected { border-left: 4px solid var(--forest); }
+.locationWarning { border-left: 4px solid #a4382b; background: #fff5f3; }
+.locationSelected p, .locationWarning p { margin: .35rem 0; }
+.locationSelected details, .locationWarning details { margin-top: .6rem; color: var(--muted); font-size: .9rem; }
 .field { display: grid; align-content: start; gap: .3rem; color: var(--ink-soft); font-weight: 700; }
 .field small { color: var(--muted); font-weight: 500; }
 .field input, .field select, .inner select { width: 100%; min-height: 2.8rem; padding: .55rem .7rem; border: 1px solid #aebfba; border-radius: .45rem; color: var(--ink); background: #fff; }
@@ -46,5 +57,5 @@
 .metadata div { display: grid; grid-template-columns: minmax(8rem, 1fr) 2fr; gap: .5rem; }
 .metadata dt { color: var(--muted); text-transform: capitalize; }
 .metadata dd { margin: 0; overflow-wrap: anywhere; }
-@media (min-width: 42rem) { .grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (min-width: 42rem) { .grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .locationSearch { grid-template-columns: minmax(0,1fr) auto; } }
 @media (min-width: 62rem) { .grid { grid-template-columns: repeat(3,minmax(0,1fr)); } }
