@@ -56,6 +56,8 @@ services:
         NEXT_PUBLIC_PV_FORECAST_URL: ${FORECAST_SITE_ADDRESS:-http://forecast.localhost}
     environment:
       BACKEND_API_BASE_URL: http://backend:8000
+      NOMINATIM_BASE_URL: ${NOMINATIM_BASE_URL:-https://nominatim.openstreetmap.org}
+      NOMINATIM_USER_AGENT: ${NOMINATIM_USER_AGENT:-ExergyPulse/1.0 (https://exergypulse.de)}
     expose:
       - "3000"
     healthcheck:
